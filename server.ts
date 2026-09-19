@@ -196,6 +196,255 @@ app.get("/view-transactions", async (req, res) => {
   }
 });
 
+// 1b. GET /category-expenses (SQL SUM(amount) GROUP BY category with Date Range Filter)
+app.get(["/category-expenses", "/view-category-expenses"], async (req, res) => {
+  res.setHeader("Content-Type", "application/json;charset=UTF-8");
+
+  try {
+    const duration = String(req.query.duration || "this_month");
+    let startDate = req.query.start_date ? String(req.query.start_date) : "";
+    let endDate = req.query.end_date ? String(req.query.end_date) : "";
+
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth(); // 0-based
+
+    if (!startDate || !endDate || duration !== "custom") {
+      if (duration === "this_month") {
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        startDate = firstDay.toISOString().split("T")[0];
+        endDate = lastDay.toISOString().split("T")[0];
+      } else if (duration === "last_month") {
+        const firstDay = new Date(year, month - 1, 1);
+        const lastDay = new Date(year, month, 0);
+        startDate = firstDay.toISOString().split("T")[0];
+        endDate = lastDay.toISOString().split("T")[0];
+      } else if (duration === "last_3_months") {
+        const firstDay = new Date(year, month - 2, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        startDate = firstDay.toISOString().split("T")[0];
+        endDate = lastDay.toISOString().split("T")[0];
+      } else if (duration === "last_6_months") {
+        const firstDay = new Date(year, month - 5, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        startDate = firstDay.toISOString().split("T")[0];
+        endDate = lastDay.toISOString().split("T")[0];
+      } else if (duration === "this_year") {
+        startDate = `${year}-01-01`;
+        endDate = `${year}-12-31`;
+      }
+    }
+
+    if (!startDate || !endDate) {
+      startDate = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+      endDate = new Date(year, month + 1, 0).toISOString().split("T")[0];
+    }
+
+    const sqlQuery = `
+      WITH combined_expenses AS (
+        SELECT LOWER(category) as category, amount
+        FROM transactions
+        WHERE LOWER(type) = 'expense'
+          AND transaction_date >= $1::date
+          AND transaction_date <= $2::date
+        
+        UNION ALL
+        
+        SELECT LOWER(category) as category, amount
+        FROM subscriptions
+        WHERE LOWER(status) = 'active'
+          AND next_billing >= $1::date
+          AND next_billing <= $2::date
+      )
+      SELECT category, SUM(amount) as total_amount
+      FROM combined_expenses
+      GROUP BY category
+      ORDER BY total_amount DESC;
+    `;
+
+    let resultRows: any[] = [];
+
+    if (externalPgPool) {
+      try {
+        const extRes = await externalPgPool.query(sqlQuery, [startDate, endDate]);
+        resultRows = extRes.rows;
+      } catch (e: any) {
+        console.error("External PG category expenses query error:", e.message);
+      }
+    }
+
+    if (resultRows.length === 0) {
+      const result = await db.query<{ category: string; total_amount: string | number }>(sqlQuery, [startDate, endDate]);
+      resultRows = result.rows;
+    }
+
+    const categories = resultRows.map(r => {
+      let cat = String(r.category || "others").toLowerCase().trim();
+      if (cat === "other") cat = "others";
+      const amt = parseFloat(String(r.total_amount || 0));
+      const formattedLabel = cat.charAt(0).toUpperCase() + cat.slice(1);
+      return {
+        category: cat,
+        label: formattedLabel,
+        totalAmount: amt,
+        value: amt
+      };
+    });
+
+    return res.json({
+      startDate,
+      endDate,
+      duration,
+      categories
+    });
+  } catch (err: any) {
+    console.error("PG category expenses query error:", err);
+    return res.status(500).json({ error: "Database query failed: " + err.message });
+  }
+});
+
+// 1c. GET /daily-trends (SQL SUM(amount) GROUP BY transaction_date with Date Range Filter)
+app.get(["/daily-trends", "/view-daily-trends"], async (req, res) => {
+  res.setHeader("Content-Type", "application/json;charset=UTF-8");
+
+  try {
+    const duration = String(req.query.duration || "this_month");
+    let startDate = req.query.start_date ? String(req.query.start_date) : "";
+    let endDate = req.query.end_date ? String(req.query.end_date) : "";
+
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth(); // 0-based
+
+    if (!startDate || !endDate || duration !== "custom") {
+      if (duration === "this_month") {
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        startDate = firstDay.toISOString().split("T")[0];
+        endDate = lastDay.toISOString().split("T")[0];
+      } else if (duration === "last_month") {
+        const firstDay = new Date(year, month - 1, 1);
+        const lastDay = new Date(year, month, 0);
+        startDate = firstDay.toISOString().split("T")[0];
+        endDate = lastDay.toISOString().split("T")[0];
+      } else if (duration === "last_3_months") {
+        const firstDay = new Date(year, month - 2, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        startDate = firstDay.toISOString().split("T")[0];
+        endDate = lastDay.toISOString().split("T")[0];
+      } else if (duration === "last_6_months") {
+        const firstDay = new Date(year, month - 5, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        startDate = firstDay.toISOString().split("T")[0];
+        endDate = lastDay.toISOString().split("T")[0];
+      } else if (duration === "this_year") {
+        startDate = `${year}-01-01`;
+        endDate = `${year}-12-31`;
+      }
+    }
+
+    if (!startDate || !endDate) {
+      startDate = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+      endDate = new Date(year, month + 1, 0).toISOString().split("T")[0];
+    }
+
+    const trendsQuery = `
+      WITH combined_events AS (
+        SELECT 
+          TO_CHAR(transaction_date, 'YYYY-MM-DD') as date_str,
+          (CASE WHEN LOWER(type) = 'income' THEN amount ELSE 0 END) as inc,
+          (CASE WHEN LOWER(type) = 'expense' THEN amount ELSE 0 END) as exp
+        FROM transactions
+        WHERE transaction_date >= $1::date
+          AND transaction_date <= $2::date
+
+        UNION ALL
+
+        SELECT 
+          TO_CHAR(next_billing, 'YYYY-MM-DD') as date_str,
+          0 as inc,
+          amount as exp
+        FROM subscriptions
+        WHERE LOWER(status) = 'active'
+          AND next_billing >= $1::date
+          AND next_billing <= $2::date
+      )
+      SELECT 
+        date_str,
+        SUM(inc) as income_sum,
+        SUM(exp) as expense_sum
+      FROM combined_events
+      GROUP BY date_str
+      ORDER BY date_str ASC;
+    `;
+
+    const txQuery = `
+      SELECT id, type, category, title, amount, TO_CHAR(transaction_date, 'YYYY-MM-DD') as date
+      FROM transactions
+      WHERE transaction_date >= $1::date
+        AND transaction_date <= $2::date
+      ORDER BY transaction_date DESC, id DESC;
+    `;
+
+    let trendRows: any[] = [];
+    let txRows: any[] = [];
+
+    if (externalPgPool) {
+      try {
+        const extTrends = await externalPgPool.query(trendsQuery, [startDate, endDate]);
+        trendRows = extTrends.rows;
+        const extTxs = await externalPgPool.query(txQuery, [startDate, endDate]);
+        txRows = extTxs.rows;
+      } catch (e: any) {
+        console.error("External PG daily trends query error:", e.message);
+      }
+    }
+
+    if (trendRows.length === 0 && txRows.length === 0) {
+      const resTrends = await db.query(trendsQuery, [startDate, endDate]);
+      trendRows = resTrends.rows;
+      const resTxs = await db.query(txQuery, [startDate, endDate]);
+      txRows = resTxs.rows;
+    }
+
+    const dailyTrends = trendRows.map(r => {
+      const dStr = String(r.date_str || "");
+      const d = new Date(dStr + "T00:00:00");
+      const formattedDate = isNaN(d.getTime())
+        ? dStr
+        : d.toLocaleDateString("en-IN", { month: "short", day: "numeric" });
+
+      return {
+        rawDate: dStr,
+        formattedDate,
+        income: parseFloat(String(r.income_sum || 0)),
+        expense: parseFloat(String(r.expense_sum || 0)),
+      };
+    });
+
+    const formattedTxs = txRows.map(r => ({
+      id: Number(r.id),
+      type: String(r.type || "expense").toLowerCase(),
+      category: String(r.category || "others").toLowerCase(),
+      title: String(r.title || ""),
+      amount: parseFloat(String(r.amount || 0)),
+      date: String(r.date || "")
+    }));
+
+    return res.json({
+      startDate,
+      endDate,
+      duration,
+      dailyTrends,
+      transactions: formattedTxs
+    });
+  } catch (err: any) {
+    console.error("PG daily trends query error:", err);
+    return res.status(500).json({ error: "Database query failed: " + err.message });
+  }
+});
+
 // 2. POST /add-transaction (SQL INSERT INTO transactions)
 app.post("/add-transaction", async (req, res) => {
   const type = req.body.type;
@@ -267,39 +516,57 @@ app.post("/add-transaction", async (req, res) => {
   }
 });
 
-// 3. POST /delete-transaction (SQL DELETE FROM transactions)
-app.post("/delete-transaction", async (req, res) => {
-  const rawId = req.body.id || req.query.id;
+// 3. POST / DELETE / GET /delete-transaction & /DeleteServlet (SQL DELETE FROM transactions WHERE id = $1)
+app.all(["/delete-transaction", "/delete-transaction/:id", "/DeleteServlet", "/api/transactions/:id"], async (req, res) => {
+  res.setHeader("Content-Type", "application/json;charset=UTF-8");
 
-  if (!rawId) {
-    return res.status(400).json({ error: "Transaction ID is required" });
+  const rawId = req.params?.id || req.body?.id || req.query?.id;
+
+  console.log("========== DELETE TRANSACTION DB REQUEST ==========");
+  console.log("Raw ID received = ", rawId);
+  console.log("Method = ", req.method);
+  console.log("===================================================");
+
+  if (rawId === undefined || rawId === null || String(rawId).trim() === "") {
+    return res.status(400).json({ error: "Transaction ID is required for deletion." });
   }
 
   const numericId = parseInt(String(rawId), 10);
-  const targetId = isNaN(numericId) ? rawId : numericId;
+  const targetId = isNaN(numericId) ? String(rawId).trim() : numericId;
 
   try {
-    await db.query("DELETE FROM transactions WHERE id = $1;", [targetId]);
+    const deleteSql = "DELETE FROM transactions WHERE id = $1;";
+    
+    // Execute SQL Prepared Statement
+    const result = await db.query(deleteSql, [targetId]);
+    console.log(`Deleted ${result.rowCount || 0} rows from embedded PostgreSQL DB for ID:`, targetId);
+
     if (externalPgPool) {
       try {
-        await externalPgPool.query("DELETE FROM transactions WHERE id = $1;", [targetId]);
+        const extResult = await externalPgPool.query(deleteSql, [targetId]);
+        console.log(`Deleted ${extResult.rowCount || 0} rows from external PostgreSQL DB for ID:`, targetId);
       } catch (e: any) {
         console.error("External PG delete error:", e.message);
       }
     }
 
-    if (req.headers["accept"]?.includes("application/json") || req.xhr) {
-      return res.json({ success: true, message: "Transaction deleted from PostgreSQL database" });
+    if (req.headers["accept"]?.includes("application/json") || req.xhr || req.headers["x-requested-with"] === "XMLHttpRequest") {
+      return res.json({
+        success: true,
+        message: "Transaction deleted successfully from PostgreSQL database",
+        deletedId: targetId
+      });
     }
+
     return res.redirect("/index.html");
   } catch (err: any) {
-    console.error("PG delete error:", err);
-    return res.status(500).json({ error: err.message });
+    console.error("PG delete query error:", err);
+    return res.status(500).json({ error: "Failed to delete transaction from database: " + err.message });
   }
 });
 
-// 3b. POST /edit-transaction (SQL UPDATE transactions)
-app.post("/edit-transaction", async (req, res) => {
+// 3b. POST /edit-transaction, /EditServlet, /EditTransactionServlet (SQL UPDATE transactions WHERE id = $1)
+app.post(["/edit-transaction", "/EditServlet", "/EditTransactionServlet"], async (req, res) => {
   const id = req.body.id;
   const type = req.body.type;
   const title = req.body.title;

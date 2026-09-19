@@ -1,16 +1,28 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
+import DashboardExpensePieChart from './components/DashboardExpensePieChart.tsx';
 import './index.css';
 
 function renderApp() {
-  const container = document.getElementById('bklit-analytics-chart-root') || document.getElementById('root');
-  if (container && !(container as any)._reactRoot) {
-    const root = createRoot(container);
-    (container as any)._reactRoot = root;
+  const analyticsContainer = document.getElementById('bklit-analytics-chart-root') || document.getElementById('root');
+  if (analyticsContainer && !(analyticsContainer as any)._reactRoot) {
+    const root = createRoot(analyticsContainer);
+    (analyticsContainer as any)._reactRoot = root;
     root.render(
       <StrictMode>
         <App />
+      </StrictMode>
+    );
+  }
+
+  const pieContainer = document.getElementById('dashboard-pie-chart-root');
+  if (pieContainer && !(pieContainer as any)._reactRoot) {
+    const root = createRoot(pieContainer);
+    (pieContainer as any)._reactRoot = root;
+    root.render(
+      <StrictMode>
+        <DashboardExpensePieChart />
       </StrictMode>
     );
   }

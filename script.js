@@ -152,7 +152,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 maximumFractionDigits: 2
             });
 
-        const txId = transaction.id || "";
+        const txId = (transaction.id !== undefined && transaction.id !== null) ? transaction.id : "";
         const txDate = transaction.date || transaction.transaction_date || "";
 
         row.innerHTML = `
@@ -168,8 +168,10 @@ document.addEventListener("DOMContentLoaded", function () {
                 ${sign}₹${formattedAmount}
             </td>
             <td>
-                <button class="btn-edit" data-id="${txId}" style="background-color: var(--primary); color: white; border: none; padding: 0.35rem 0.65rem; border-radius: 4px; font-size: 0.775rem; font-weight: 500; cursor: pointer; margin-right: 0.35rem;">Edit</button>
-                <button class="btn-delete" data-id="${txId}" title="Delete transaction">Delete</button>
+                <div class="table-actions">
+                    <button class="btn-edit" data-id="${txId}" title="Edit transaction">Edit</button>
+                    <button class="btn-delete" data-id="${txId}" title="Delete transaction">Delete</button>
+                </div>
             </td>
         `;
 
@@ -183,8 +185,13 @@ document.addEventListener("DOMContentLoaded", function () {
         const deleteBtn = row.querySelector(".btn-delete");
         if (deleteBtn) {
             deleteBtn.addEventListener("click", function () {
-                const idToDelete = this.getAttribute("data-id");
-                if (confirm("Are you sure you want to delete this transaction?")) {
+                const idToDelete = this.getAttribute("data-id") || transaction.id;
+                if (idToDelete === undefined || idToDelete === null || String(idToDelete).trim() === "") {
+                    alert("Cannot delete: Missing transaction ID");
+                    return;
+                }
+                const titleStr = transaction.title ? ` "${transaction.title}"` : "";
+                if (confirm(`Are you sure you want to delete this transaction${titleStr}?`)) {
                     deleteTransaction(idToDelete);
                 }
             });
@@ -283,15 +290,17 @@ document.addEventListener("DOMContentLoaded", function () {
             .then(data => {
                 closeEditModal();
                 loadTransactions();
-                if (window.refreshAnalyticsChart) window.refreshAnalyticsChart();
                 window.dispatchEvent(new CustomEvent("transactionsUpdated"));
+                if (typeof window.refreshAnalyticsChart === "function") window.refreshAnalyticsChart();
+                if (typeof window.refreshDashboardPieChart === "function") window.refreshDashboardPieChart();
             })
             .catch(err => {
                 console.error("Error editing transaction:", err);
                 closeEditModal();
                 loadTransactions();
-                if (window.refreshAnalyticsChart) window.refreshAnalyticsChart();
                 window.dispatchEvent(new CustomEvent("transactionsUpdated"));
+                if (typeof window.refreshAnalyticsChart === "function") window.refreshAnalyticsChart();
+                if (typeof window.refreshDashboardPieChart === "function") window.refreshDashboardPieChart();
             });
         });
     }
@@ -304,18 +313,22 @@ document.addEventListener("DOMContentLoaded", function () {
        DELETE TRANSACTION
        ========================================== */
     function deleteTransaction(id) {
-        if (!id) {
+        if (id === undefined || id === null || String(id).trim() === "") {
             alert("Cannot delete: Missing transaction ID");
             return;
         }
+
+        const params = new URLSearchParams();
+        params.append("id", String(id));
 
         fetch("/delete-transaction", {
             method: "POST",
             headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
-                "Accept": "application/json"
+                "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest"
             },
-            body: "id=" + encodeURIComponent(id)
+            body: params.toString()
         })
         .then(res => {
             if (!res.ok) {
@@ -324,16 +337,19 @@ document.addEventListener("DOMContentLoaded", function () {
             return res.json();
         })
         .then(data => {
+            console.log("Delete transaction success:", data);
             loadTransactions();
-            if (window.refreshAnalyticsChart) window.refreshAnalyticsChart();
             window.dispatchEvent(new CustomEvent("transactionsUpdated"));
+            if (typeof window.refreshAnalyticsChart === "function") window.refreshAnalyticsChart();
+            if (typeof window.refreshDashboardPieChart === "function") window.refreshDashboardPieChart();
         })
         .catch(err => {
             console.error("Error deleting transaction:", err);
             alert("Failed to delete transaction: " + err.message);
             loadTransactions();
-            if (window.refreshAnalyticsChart) window.refreshAnalyticsChart();
             window.dispatchEvent(new CustomEvent("transactionsUpdated"));
+            if (typeof window.refreshAnalyticsChart === "function") window.refreshAnalyticsChart();
+            if (typeof window.refreshDashboardPieChart === "function") window.refreshDashboardPieChart();
         });
     }
 
@@ -776,7 +792,13 @@ document.addEventListener("DOMContentLoaded", function () {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id })
         })
-        .then(() => loadSubscriptions());
+        .then(() => {
+            loadSubscriptions();
+            loadTransactions();
+            window.dispatchEvent(new CustomEvent("transactionsUpdated"));
+            if (typeof window.refreshAnalyticsChart === "function") window.refreshAnalyticsChart();
+            if (typeof window.refreshDashboardPieChart === "function") window.refreshDashboardPieChart();
+        });
     }
 
     const subForm = document.getElementById("add-subscription-form");
@@ -797,6 +819,10 @@ document.addEventListener("DOMContentLoaded", function () {
             .then(data => {
                 subForm.reset();
                 loadSubscriptions();
+                loadTransactions();
+                window.dispatchEvent(new CustomEvent("transactionsUpdated"));
+                if (typeof window.refreshAnalyticsChart === "function") window.refreshAnalyticsChart();
+                if (typeof window.refreshDashboardPieChart === "function") window.refreshDashboardPieChart();
             });
         });
     }

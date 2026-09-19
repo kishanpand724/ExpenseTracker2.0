@@ -462,20 +462,56 @@ body {
   color: var(--expense);
 }
 
-.btn-delete {
-  background: none;
-  border: none;
-  color: #ef4444;
-  cursor: pointer;
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.8rem;
+.table-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
+.btn-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  padding: 0.3rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.775rem;
   font-weight: 600;
-  transition: background-color 0.15s;
+  cursor: pointer;
+  transition: all 0.15s ease-in-out;
+  line-height: 1;
+}
+
+.btn-edit:hover {
+  background-color: #e2e8f0;
+  color: #0f172a;
+  border-color: #94a3b8;
+}
+
+.btn-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  cursor: pointer;
+  padding: 0.3rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.775rem;
+  font-weight: 600;
+  transition: all 0.15s ease-in-out;
+  line-height: 1;
 }
 
 .btn-delete:hover {
   background-color: #fee2e2;
+  border-color: #fca5a5;
+  color: #b91c1c;
 }
 
 /* Subscriptions, Analytics, Settings Cards & Code Viewer */

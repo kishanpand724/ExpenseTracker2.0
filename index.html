@@ -112,11 +112,15 @@
                 <!-- Overview and Transactions Section -->
                 <div class="dashboard-grid">
 
-                    <!-- Expense Overview Visual Canvas Chart -->
+                    <!-- Expense by Category Pie Chart -->
                     <section class="card overview-section">
-                        <h2>Expense Overview</h2>
-                        <div class="chart-placeholder" id="chart-container">
-                            <canvas id="expenseChart" width="400" height="260"></canvas>
+                        <div class="section-header" style="margin-bottom: 0.75rem;">
+                            <h2>Expense by Category</h2>
+                        </div>
+                        <div id="dashboard-pie-chart-root" style="width: 100%; display: flex; justify-content: center; align-items: center; min-height: 240px;">
+                            <div class="chart-placeholder" id="chart-container" style="width: 100%;">
+                                <canvas id="expenseChart" width="400" height="260" style="display: none;"></canvas>
+                            </div>
                         </div>
                     </section>
 
