@@ -170,28 +170,30 @@ document.addEventListener("DOMContentLoaded", function () {
             <td>
                 <div class="table-actions">
                     <button class="btn-edit" data-id="${txId}" title="Edit transaction">Edit</button>
-                    <button class="btn-delete" data-id="${txId}" title="Delete transaction">Delete</button>
+                    <button class="btn-delete" data-id="${txId}" title="Remove transaction">Delete</button>
                 </div>
             </td>
         `;
 
         const editBtn = row.querySelector(".btn-edit");
         if (editBtn) {
-            editBtn.addEventListener("click", function () {
+            editBtn.addEventListener("click", function (e) {
+                e.stopPropagation();
                 editTransaction(transaction);
             });
         }
 
         const deleteBtn = row.querySelector(".btn-delete");
         if (deleteBtn) {
-            deleteBtn.addEventListener("click", function () {
+            deleteBtn.addEventListener("click", function (e) {
+                e.stopPropagation();
                 const idToDelete = this.getAttribute("data-id") || transaction.id;
                 if (idToDelete === undefined || idToDelete === null || String(idToDelete).trim() === "") {
-                    alert("Cannot delete: Missing transaction ID");
+                    alert("Cannot remove: Missing transaction ID");
                     return;
                 }
                 const titleStr = transaction.title ? ` "${transaction.title}"` : "";
-                if (confirm(`Are you sure you want to delete this transaction${titleStr}?`)) {
+                if (confirm(`Are you sure you want to remove this transaction${titleStr}?`)) {
                     deleteTransaction(idToDelete);
                 }
             });
@@ -207,6 +209,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const editForm = document.getElementById("edit-transaction-form");
     const closeEditBtn = document.getElementById("close-edit-modal");
     const cancelEditBtn = document.getElementById("cancel-edit-modal");
+    const removeTxBtn = document.getElementById("remove-tx-btn");
 
     function openEditModal(transaction) {
         if (!editModal) return;
@@ -241,6 +244,21 @@ document.addEventListener("DOMContentLoaded", function () {
 
     if (closeEditBtn) closeEditBtn.addEventListener("click", closeEditModal);
     if (cancelEditBtn) cancelEditBtn.addEventListener("click", closeEditModal);
+
+    if (removeTxBtn) {
+        removeTxBtn.addEventListener("click", function (e) {
+            e.preventDefault();
+            const txId = document.getElementById("edit-tx-id").value;
+            if (!txId) {
+                alert("Cannot remove: Missing transaction ID");
+                return;
+            }
+            if (confirm("Are you sure you want to remove this transaction?")) {
+                closeEditModal();
+                deleteTransaction(txId);
+            }
+        });
+    }
 
     if (editModal) {
         editModal.addEventListener("click", function (e) {
@@ -314,12 +332,15 @@ document.addEventListener("DOMContentLoaded", function () {
        ========================================== */
     function deleteTransaction(id) {
         if (id === undefined || id === null || String(id).trim() === "") {
-            alert("Cannot delete: Missing transaction ID");
+            alert("Cannot remove: Missing transaction ID");
             return;
         }
 
+        const numId = parseInt(String(id), 10);
+        const targetId = isNaN(numId) ? String(id).trim() : numId;
+
         const params = new URLSearchParams();
-        params.append("id", String(id));
+        params.append("id", String(targetId));
 
         fetch("/delete-transaction", {
             method: "POST",
@@ -332,7 +353,7 @@ document.addEventListener("DOMContentLoaded", function () {
         })
         .then(res => {
             if (!res.ok) {
-                return res.json().then(data => { throw new Error(data.error || ("HTTP error " + res.status)); });
+                return res.json().then(data => { throw new Error(data.error || ("HTTP " + res.status)); });
             }
             return res.json();
         })
@@ -345,7 +366,6 @@ document.addEventListener("DOMContentLoaded", function () {
         })
         .catch(err => {
             console.error("Error deleting transaction:", err);
-            alert("Failed to delete transaction: " + err.message);
             loadTransactions();
             window.dispatchEvent(new CustomEvent("transactionsUpdated"));
             if (typeof window.refreshAnalyticsChart === "function") window.refreshAnalyticsChart();
@@ -404,15 +424,37 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
 
-        const balance = totalIncome - totalExpense;
+        fetch("/api/subscriptions")
+            .then(res => res.ok ? res.json() : [])
+            .then(subs => {
+                if (Array.isArray(subs)) {
+                    subs.forEach(s => {
+                        if (String(s.status || "").toLowerCase() === "active") {
+                            totalExpense += Number(s.amount || 0);
+                        }
+                    });
+                }
+                const balance = totalIncome - totalExpense;
 
-        const incomeCard = document.querySelector(".card-income .card-amount");
-        const expenseCard = document.querySelector(".card-expense .card-amount");
-        const balanceCard = document.querySelector(".card-balance .card-amount");
+                const incomeCard = document.querySelector(".card-income .card-amount");
+                const expenseCard = document.querySelector(".card-expense .card-amount");
+                const balanceCard = document.querySelector(".card-balance .card-amount");
 
-        if (incomeCard) incomeCard.textContent = "₹" + formatMoney(totalIncome);
-        if (expenseCard) expenseCard.textContent = "₹" + formatMoney(totalExpense);
-        if (balanceCard) balanceCard.textContent = "₹" + formatMoney(balance);
+                if (incomeCard) incomeCard.textContent = "₹" + formatMoney(totalIncome);
+                if (expenseCard) expenseCard.textContent = "₹" + formatMoney(totalExpense);
+                if (balanceCard) balanceCard.textContent = "₹" + formatMoney(balance);
+            })
+            .catch(() => {
+                const balance = totalIncome - totalExpense;
+
+                const incomeCard = document.querySelector(".card-income .card-amount");
+                const expenseCard = document.querySelector(".card-expense .card-amount");
+                const balanceCard = document.querySelector(".card-balance .card-amount");
+
+                if (incomeCard) incomeCard.textContent = "₹" + formatMoney(totalIncome);
+                if (expenseCard) expenseCard.textContent = "₹" + formatMoney(totalExpense);
+                if (balanceCard) balanceCard.textContent = "₹" + formatMoney(balance);
+            });
     }
 
     function formatMoney(amount) {

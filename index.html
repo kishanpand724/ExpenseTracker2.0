@@ -5,9 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Personal Expense Tracker</title>
-    <meta name="description" content="A full-stack Expense Tracker with Java Servlet / JSP backend architecture and PostgreSQL database." />
+    <meta name="description" content="A full-stack Personal Expense Tracker application." />
     <meta property="og:title" content="Personal Expense Tracker" />
-    <meta property="og:description" content="A full-stack Expense Tracker with Java Servlet / JSP backend architecture and PostgreSQL database." />
+    <meta property="og:description" content="A full-stack Personal Expense Tracker application." />
     <link rel="stylesheet" href="/style.css">
 </head>
 
@@ -368,9 +368,14 @@
                     <label for="edit-tx-date" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.25rem; color: var(--text-secondary);">Date</label>
                     <input type="date" id="edit-tx-date" name="transaction_date" style="width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--border-color); border-radius: 6px;" required />
                 </div>
-                <div class="modal-actions" style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.25rem;">
-                    <button type="button" id="cancel-edit-modal" class="btn-cancel">Cancel</button>
-                    <button type="submit" class="btn-submit" style="width: auto; padding: 0.65rem 1.25rem;">Save Changes</button>
+                <div class="modal-actions" style="display: flex; gap: 0.75rem; justify-content: space-between; align-items: center; margin-top: 1.25rem; flex-wrap: wrap;">
+                    <button type="button" id="remove-tx-btn" class="btn-delete" style="background-color: #fef2f2; color: #dc2626; border: 1px solid #fecaca; padding: 0.6rem 1rem; border-radius: 6px; font-weight: 600; font-size: 0.85rem; cursor: pointer; transition: all 0.15s ease-in-out;">
+                        Remove Transaction
+                    </button>
+                    <div style="display: flex; gap: 0.75rem; align-items: center;">
+                        <button type="button" id="cancel-edit-modal" class="btn-cancel">Cancel</button>
+                        <button type="submit" class="btn-submit" style="width: auto; padding: 0.65rem 1.25rem;">Save Changes</button>
+                    </div>
                 </div>
             </form>
         </div>

@@ -550,15 +550,11 @@ app.all(["/delete-transaction", "/delete-transaction/:id", "/DeleteServlet", "/a
       }
     }
 
-    if (req.headers["accept"]?.includes("application/json") || req.xhr || req.headers["x-requested-with"] === "XMLHttpRequest") {
-      return res.json({
-        success: true,
-        message: "Transaction deleted successfully from PostgreSQL database",
-        deletedId: targetId
-      });
-    }
-
-    return res.redirect("/index.html");
+    return res.json({
+      success: true,
+      message: "Transaction deleted successfully from PostgreSQL database",
+      deletedId: targetId
+    });
   } catch (err: any) {
     console.error("PG delete query error:", err);
     return res.status(500).json({ error: "Failed to delete transaction from database: " + err.message });
