@@ -19,6 +19,12 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@bklitui/ui/charts": [
+        "./src/bklitui/charts.tsx"
+      ],
+      "@bklitui/ui/*": [
+        "./src/bklitui/*"
       ]
     },
     "allowImportingTsExtensions": true,

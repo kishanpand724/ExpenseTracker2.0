@@ -62,7 +62,7 @@ if (currentDbUrl) {
 // Function to initialize PostgreSQL tables & seeds
 async function initDatabase() {
   console.log("Initializing PostgreSQL database...");
-  const createTableQuery = `
+  const createTransactionsQuery = `
     CREATE TABLE IF NOT EXISTS transactions (
       id SERIAL PRIMARY KEY,
       type VARCHAR(20) NOT NULL,
@@ -73,11 +73,25 @@ async function initDatabase() {
     );
   `;
 
-  await db.query(createTableQuery);
+  const createSubscriptionsQuery = `
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      category VARCHAR(50) NOT NULL,
+      amount NUMERIC(12, 2) NOT NULL,
+      billing_cycle VARCHAR(50) NOT NULL DEFAULT 'Monthly',
+      next_billing DATE NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'Active'
+    );
+  `;
+
+  await db.query(createTransactionsQuery);
+  await db.query(createSubscriptionsQuery);
 
   if (externalPgPool) {
     try {
-      await externalPgPool.query(createTableQuery);
+      await externalPgPool.query(createTransactionsQuery);
+      await externalPgPool.query(createSubscriptionsQuery);
       console.log("Connected to External PostgreSQL pool successfully!");
     } catch (e: any) {
       console.error("External PG connection error:", e.message);
@@ -255,18 +269,23 @@ app.post("/add-transaction", async (req, res) => {
 
 // 3. POST /delete-transaction (SQL DELETE FROM transactions)
 app.post("/delete-transaction", async (req, res) => {
-  const id = req.body.id || req.query.id;
+  const rawId = req.body.id || req.query.id;
 
-  if (!id) {
+  if (!rawId) {
     return res.status(400).json({ error: "Transaction ID is required" });
   }
 
+  const numericId = parseInt(String(rawId), 10);
+  const targetId = isNaN(numericId) ? rawId : numericId;
+
   try {
-    await db.query("DELETE FROM transactions WHERE id = $1;", [id]);
+    await db.query("DELETE FROM transactions WHERE id = $1;", [targetId]);
     if (externalPgPool) {
       try {
-        await externalPgPool.query("DELETE FROM transactions WHERE id = $1;", [id]);
-      } catch (e: any) {}
+        await externalPgPool.query("DELETE FROM transactions WHERE id = $1;", [targetId]);
+      } catch (e: any) {
+        console.error("External PG delete error:", e.message);
+      }
     }
 
     if (req.headers["accept"]?.includes("application/json") || req.xhr) {
@@ -275,6 +294,45 @@ app.post("/delete-transaction", async (req, res) => {
     return res.redirect("/index.html");
   } catch (err: any) {
     console.error("PG delete error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 3b. POST /edit-transaction (SQL UPDATE transactions)
+app.post("/edit-transaction", async (req, res) => {
+  const id = req.body.id;
+  const type = req.body.type;
+  const title = req.body.title;
+  const amount = req.body.amount;
+  const category = req.body.category;
+  const transactionDate = req.body.transaction_date || req.body.date;
+
+  if (!id || !type || !title || !amount || !category || !transactionDate) {
+    return res.status(400).json({ error: "All fields including ID are required for edit." });
+  }
+
+  const numAmount = parseFloat(amount);
+
+  try {
+    await db.query(
+      "UPDATE transactions SET type = $1, category = $2, amount = $3, title = $4, transaction_date = $5 WHERE id = $6;",
+      [type, category, numAmount, title, transactionDate, id]
+    );
+
+    if (externalPgPool) {
+      try {
+        await externalPgPool.query(
+          "UPDATE transactions SET type = $1, category = $2, amount = $3, title = $4, transaction_date = $5 WHERE id = $6;",
+          [type, category, numAmount, title, transactionDate, id]
+        );
+      } catch (e: any) {
+        console.error("External PG edit error:", e.message);
+      }
+    }
+
+    return res.json({ success: true, message: "Transaction updated in PostgreSQL database" });
+  } catch (err: any) {
+    console.error("PG edit error:", err);
     return res.status(500).json({ error: err.message });
   }
 });
@@ -364,36 +422,77 @@ app.post("/api/db-config", async (req, res) => {
 });
 
 // Subscriptions APIs
-app.get("/api/subscriptions", (req, res) => {
-  res.json(getLocalSubscriptions());
+app.get("/api/subscriptions", async (req, res) => {
+  try {
+    const targetPool: any = externalPgPool || db;
+    const result = await targetPool.query(
+      "SELECT id, name, category, amount, billing_cycle as \"billingCycle\", next_billing as \"nextBilling\", status FROM subscriptions ORDER BY next_billing ASC, id DESC;"
+    );
+    const rows = result.rows.map((row: any) => ({
+      ...row,
+      amount: parseFloat(row.amount),
+      nextBilling: row.nextBilling ? new Date(row.nextBilling).toISOString().split("T")[0] : ""
+    }));
+    return res.json(rows);
+  } catch (err: any) {
+    console.error("Fetch subscriptions error:", err.message);
+    return res.json([]);
+  }
 });
 
-app.post("/api/subscriptions", (req, res) => {
+app.post("/api/subscriptions", async (req, res) => {
   const { name, category, amount, billingCycle, nextBilling } = req.body;
   if (!name || !amount) {
     return res.status(400).json({ error: "Name and Amount are required." });
   }
-  const subs = getLocalSubscriptions();
-  const newSub = {
-    id: Date.now(),
-    name,
-    category: category || "bills",
-    amount: parseFloat(amount),
-    billingCycle: billingCycle || "Monthly",
-    nextBilling: nextBilling || new Date().toISOString().split("T")[0],
-    status: "Active"
-  };
-  subs.push(newSub);
-  saveLocalSubscriptions(subs);
-  res.json({ success: true, subscription: newSub });
+
+  const numAmount = parseFloat(amount);
+  const cat = category || "bills";
+  const cycle = billingCycle || "Monthly";
+  const date = nextBilling || new Date().toISOString().split("T")[0];
+
+  try {
+    await db.query(
+      "INSERT INTO subscriptions (name, category, amount, billing_cycle, next_billing, status) VALUES ($1, $2, $3, $4, $5, $6);",
+      [name, cat, numAmount, cycle, date, "Active"]
+    );
+
+    if (externalPgPool) {
+      try {
+        await externalPgPool.query(
+          "INSERT INTO subscriptions (name, category, amount, billing_cycle, next_billing, status) VALUES ($1, $2, $3, $4, $5, $6);",
+          [name, cat, numAmount, cycle, date, "Active"]
+        );
+      } catch (e: any) {
+        console.error("External PG sub insert error:", e.message);
+      }
+    }
+
+    return res.json({ success: true, message: "Subscription added to Supabase PostgreSQL" });
+  } catch (err: any) {
+    console.error("Add subscription error:", err.message);
+    return res.status(500).json({ error: err.message });
+  }
 });
 
-app.post("/api/subscriptions/delete", (req, res) => {
+app.post("/api/subscriptions/delete", async (req, res) => {
   const { id } = req.body;
-  let subs = getLocalSubscriptions();
-  subs = subs.filter((s: any) => String(s.id) !== String(id));
-  saveLocalSubscriptions(subs);
-  res.json({ success: true });
+  if (!id) {
+    return res.status(400).json({ error: "Subscription ID required." });
+  }
+
+  try {
+    await db.query("DELETE FROM subscriptions WHERE id = $1;", [id]);
+    if (externalPgPool) {
+      try {
+        await externalPgPool.query("DELETE FROM subscriptions WHERE id = $1;", [id]);
+      } catch (e: any) {}
+    }
+    return res.json({ success: true, message: "Subscription deleted from Supabase PostgreSQL" });
+  } catch (err: any) {
+    console.error("Delete subscription error:", err.message);
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 // Java Code Inspector Endpoint for user viewing

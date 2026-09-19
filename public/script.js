@@ -1,24 +1,19 @@
 document.addEventListener("DOMContentLoaded", function () {
 
     /* ==========================================
-       GLOBAL STATE & CACHE
+       GLOBAL STATE
        ========================================== */
     let allTransactionsData = [];
-    let javaCodeCache = {};
 
     /* ==========================================
        SIDEBAR NAVIGATION
        ========================================== */
-
     const navLinks = document.querySelectorAll(".sidebar-nav a");
     const sections = document.querySelectorAll(".content-section");
 
     navLinks.forEach(function (link) {
-
         link.addEventListener("click", function (event) {
-
             event.preventDefault();
-
             const targetSection = this.getAttribute("data-section");
 
             sections.forEach(function (section) {
@@ -26,7 +21,6 @@ document.addEventListener("DOMContentLoaded", function () {
             });
 
             const target = document.getElementById(targetSection);
-
             if (target) {
                 target.classList.add("active-section");
             }
@@ -37,14 +31,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
             this.parentElement.classList.add("active");
 
-            // Re-render chart or code inspector if active section opened
+            // Re-render charts or section updates if active section opened
             if (targetSection === "dashboard-section") {
                 renderExpenseOverviewChart(allTransactionsData);
             } else if (targetSection === "analytics-section") {
                 renderAnalyticsSection(allTransactionsData);
-            } else if (targetSection === "settings-section") {
-                loadJavaCode();
-                checkDbStatus();
+            } else if (targetSection === "notifications-section") {
+                renderNotifications(allTransactionsData);
             } else if (targetSection === "subscriptions-section") {
                 loadSubscriptions();
             }
@@ -60,25 +53,6 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    /* ==========================================
-       QUICK ADD BUTTON
-       ========================================== */
-
-    const quickAddButton = document.getElementById("quick-add-btn");
-    const quickAddSection = document.getElementById("quick-add-section");
-
-    if (quickAddButton && quickAddSection) {
-
-        quickAddButton.addEventListener("click", function () {
-
-            quickAddSection.scrollIntoView({
-                behavior: "smooth",
-                block: "start"
-            });
-
-        });
-    }
-
     // Default today's date in form
     const dateInput = document.getElementById("transaction_date");
     if (dateInput && !dateInput.value) {
@@ -89,31 +63,20 @@ document.addEventListener("DOMContentLoaded", function () {
     /* ==========================================
        LOAD TRANSACTIONS
        ========================================== */
-
     function loadTransactions() {
+        const recentBody = document.getElementById("recent-transactions-body");
+        const allBody = document.getElementById("all-transactions-body");
 
-        fetch("view-transactions")
+        fetch("/view-transactions")
             .then(function (response) {
-
                 if (!response.ok) {
-                    throw new Error(
-                        "Server returned status: "
-                        + response.status
-                    );
+                    throw new Error("Server returned status: " + response.status);
                 }
-
                 return response.json();
             })
-
             .then(function (transactions) {
-
                 if (!Array.isArray(transactions)) {
-
-                    console.error(
-                        "Invalid transaction data:",
-                        transactions
-                    );
-
+                    console.error("Invalid transaction data:", transactions);
                     return;
                 }
 
@@ -123,29 +86,21 @@ document.addEventListener("DOMContentLoaded", function () {
                 updateSummary(transactions);
                 renderExpenseOverviewChart(transactions);
                 renderAnalyticsSection(transactions);
+                renderNotifications(transactions);
             })
-
             .catch(function (error) {
-
-                console.error(
-                    "Failed to load transactions:",
-                    error
-                );
+                console.error("Failed to load transactions:", error);
+                if (recentBody) recentBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: #ef4444; padding: 1.5rem;">Error fetching transactions: ${escapeHTML(error.message)}</td></tr>`;
+                if (allBody) allBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: #ef4444; padding: 1.5rem;">Error fetching transactions: ${escapeHTML(error.message)}</td></tr>`;
             });
     }
-
 
     /* ==========================================
        RECENT TRANSACTIONS
        ========================================== */
-
     function loadRecentTransactions(transactions) {
-
         const tbody = document.getElementById("recent-transactions-body");
-
-        if (!tbody) {
-            return;
-        }
+        if (!tbody) return;
 
         tbody.innerHTML = "";
 
@@ -155,25 +110,17 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         transactions.slice(0, 5).forEach(function (transaction) {
-
             const row = createTransactionRow(transaction);
-
             tbody.appendChild(row);
         });
     }
 
-
     /* ==========================================
        ALL TRANSACTIONS
        ========================================== */
-
     function loadAllTransactions(transactions) {
-
         const tbody = document.getElementById("all-transactions-body");
-
-        if (!tbody) {
-            return;
-        }
+        if (!tbody) return;
 
         tbody.innerHTML = "";
 
@@ -183,28 +130,20 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         transactions.forEach(function (transaction) {
-
             const row = createTransactionRow(transaction);
-
             tbody.appendChild(row);
         });
     }
 
-
     /* ==========================================
        CREATE TABLE ROW
        ========================================== */
-
     function createTransactionRow(transaction) {
-
         const row = document.createElement("tr");
 
         const type = String(transaction.type || "").toLowerCase();
-
         const isIncome = type === "income";
-
         const typeClass = isIncome ? "income" : "expense";
-
         const sign = isIncome ? "+" : "-";
 
         const formattedAmount = Number(transaction.amount || 0)
@@ -213,30 +152,33 @@ document.addEventListener("DOMContentLoaded", function () {
                 maximumFractionDigits: 2
             });
 
-        const txId = transaction.id || transaction.title || "";
+        const txId = transaction.id || "";
         const txDate = transaction.date || transaction.transaction_date || "";
 
         row.innerHTML = `
             <td>${escapeHTML(txDate)}</td>
-
             <td><span style="text-transform: capitalize; font-weight: 500;">${escapeHTML(transaction.category)}</span></td>
-
             <td><strong>${escapeHTML(transaction.title)}</strong></td>
-
             <td>
                 <span class="badge ${typeClass}">
                     ${escapeHTML(transaction.type)}
                 </span>
             </td>
-
             <td class="amount ${typeClass}">
                 ${sign}₹${formattedAmount}
             </td>
-
             <td>
+                <button class="btn-edit" data-id="${txId}" style="background-color: var(--primary); color: white; border: none; padding: 0.35rem 0.65rem; border-radius: 4px; font-size: 0.775rem; font-weight: 500; cursor: pointer; margin-right: 0.35rem;">Edit</button>
                 <button class="btn-delete" data-id="${txId}" title="Delete transaction">Delete</button>
             </td>
         `;
+
+        const editBtn = row.querySelector(".btn-edit");
+        if (editBtn) {
+            editBtn.addEventListener("click", function () {
+                editTransaction(transaction);
+            });
+        }
 
         const deleteBtn = row.querySelector(".btn-delete");
         if (deleteBtn) {
@@ -251,13 +193,123 @@ document.addEventListener("DOMContentLoaded", function () {
         return row;
     }
 
+    /* ==========================================
+       EDIT TRANSACTION MODAL
+       ========================================== */
+    const editModal = document.getElementById("edit-modal");
+    const editForm = document.getElementById("edit-transaction-form");
+    const closeEditBtn = document.getElementById("close-edit-modal");
+    const cancelEditBtn = document.getElementById("cancel-edit-modal");
+
+    function openEditModal(transaction) {
+        if (!editModal) return;
+
+        document.getElementById("edit-tx-id").value = transaction.id || "";
+        document.getElementById("edit-tx-type").value = String(transaction.type || "expense").toLowerCase();
+        document.getElementById("edit-tx-title").value = transaction.title || "";
+        document.getElementById("edit-tx-amount").value = transaction.amount || "";
+
+        let cat = String(transaction.category || "others").toLowerCase().trim();
+        if (cat === "other") cat = "others";
+        const catSelect = document.getElementById("edit-tx-category");
+        if (catSelect) {
+            catSelect.value = cat;
+            if (catSelect.value !== cat) {
+                catSelect.value = "others";
+            }
+        }
+
+        let dateVal = transaction.date || transaction.transaction_date || new Date().toISOString().split("T")[0];
+        if (typeof dateVal === "string" && dateVal.includes("T")) {
+            dateVal = dateVal.split("T")[0];
+        }
+        document.getElementById("edit-tx-date").value = dateVal;
+
+        editModal.style.display = "flex";
+    }
+
+    function closeEditModal() {
+        if (editModal) editModal.style.display = "none";
+    }
+
+    if (closeEditBtn) closeEditBtn.addEventListener("click", closeEditModal);
+    if (cancelEditBtn) cancelEditBtn.addEventListener("click", closeEditModal);
+
+    if (editModal) {
+        editModal.addEventListener("click", function (e) {
+            if (e.target === editModal) closeEditModal();
+        });
+    }
+
+    if (editForm) {
+        editForm.addEventListener("submit", function (e) {
+            e.preventDefault();
+
+            const txId = document.getElementById("edit-tx-id").value;
+            const type = document.getElementById("edit-tx-type").value;
+            const title = document.getElementById("edit-tx-title").value.trim();
+            const amount = document.getElementById("edit-tx-amount").value;
+            const category = document.getElementById("edit-tx-category").value;
+            const transactionDate = document.getElementById("edit-tx-date").value;
+
+            if (!txId) {
+                alert("Missing transaction ID for update.");
+                return;
+            }
+
+            const params = new URLSearchParams({
+                id: txId,
+                type: type,
+                title: title,
+                amount: amount,
+                category: category,
+                transaction_date: transactionDate
+            });
+
+            fetch("/edit-transaction", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Accept": "application/json"
+                },
+                body: params.toString()
+            })
+            .then(res => {
+                if (!res.ok) {
+                    throw new Error("HTTP Error " + res.status);
+                }
+                return res.json();
+            })
+            .then(data => {
+                closeEditModal();
+                loadTransactions();
+                if (window.refreshAnalyticsChart) window.refreshAnalyticsChart();
+                window.dispatchEvent(new CustomEvent("transactionsUpdated"));
+            })
+            .catch(err => {
+                console.error("Error editing transaction:", err);
+                closeEditModal();
+                loadTransactions();
+                if (window.refreshAnalyticsChart) window.refreshAnalyticsChart();
+                window.dispatchEvent(new CustomEvent("transactionsUpdated"));
+            });
+        });
+    }
+
+    function editTransaction(transaction) {
+        openEditModal(transaction);
+    }
 
     /* ==========================================
        DELETE TRANSACTION
        ========================================== */
-
     function deleteTransaction(id) {
-        fetch("delete-transaction", {
+        if (!id) {
+            alert("Cannot delete: Missing transaction ID");
+            return;
+        }
+
+        fetch("/delete-transaction", {
             method: "POST",
             headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
@@ -265,41 +317,47 @@ document.addEventListener("DOMContentLoaded", function () {
             },
             body: "id=" + encodeURIComponent(id)
         })
-        .then(res => res.json())
+        .then(res => {
+            if (!res.ok) {
+                return res.json().then(data => { throw new Error(data.error || ("HTTP error " + res.status)); });
+            }
+            return res.json();
+        })
         .then(data => {
             loadTransactions();
+            if (window.refreshAnalyticsChart) window.refreshAnalyticsChart();
+            window.dispatchEvent(new CustomEvent("transactionsUpdated"));
         })
         .catch(err => {
             console.error("Error deleting transaction:", err);
+            alert("Failed to delete transaction: " + err.message);
             loadTransactions();
+            if (window.refreshAnalyticsChart) window.refreshAnalyticsChart();
+            window.dispatchEvent(new CustomEvent("transactionsUpdated"));
         });
     }
 
-
     /* ==========================================
-       FILTER TRANSACTIONS
+       SEARCH & FILTERS
        ========================================== */
-
     const searchInput = document.getElementById("search-input");
     const filterType = document.getElementById("filter-type");
     const filterCategory = document.getElementById("filter-category");
 
     function applyTransactionFilters() {
-        if (!allTransactionsData) return;
-
-        const searchTerm = (searchInput ? searchInput.value : "").toLowerCase().trim();
+        const query = (searchInput ? searchInput.value : "").toLowerCase().trim();
         const selectedType = filterType ? filterType.value : "all";
         const selectedCategory = filterCategory ? filterCategory.value : "all";
 
         const filtered = allTransactionsData.filter(function (tx) {
-            const matchesSearch = !searchTerm ||
-                String(tx.title || "").toLowerCase().includes(searchTerm) ||
-                String(tx.category || "").toLowerCase().includes(searchTerm);
+            const title = String(tx.title || "").toLowerCase();
+            const matchesSearch = !query || title.includes(query);
 
             const txType = String(tx.type || "").toLowerCase();
             const matchesType = selectedType === "all" || txType === selectedType;
 
-            const txCat = String(tx.category || "").toLowerCase();
+            let txCat = String(tx.category || "").toLowerCase();
+            if (txCat === "other") txCat = "others";
             const matchesCategory = selectedCategory === "all" || txCat === selectedCategory;
 
             return matchesSearch && matchesType && matchesCategory;
@@ -312,28 +370,20 @@ document.addEventListener("DOMContentLoaded", function () {
     if (filterType) filterType.addEventListener("change", applyTransactionFilters);
     if (filterCategory) filterCategory.addEventListener("change", applyTransactionFilters);
 
-
     /* ==========================================
        DASHBOARD SUMMARY
        ========================================== */
-
     function updateSummary(transactions) {
-
         let totalIncome = 0;
         let totalExpense = 0;
 
         transactions.forEach(function (transaction) {
-
             const amount = Number(transaction.amount || 0);
-
             const type = String(transaction.type || "").toLowerCase();
 
             if (type === "income") {
-
                 totalIncome += amount;
-
             } else if (type === "expense") {
-
                 totalExpense += amount;
             }
         });
@@ -341,35 +391,15 @@ document.addEventListener("DOMContentLoaded", function () {
         const balance = totalIncome - totalExpense;
 
         const incomeCard = document.querySelector(".card-income .card-amount");
-
         const expenseCard = document.querySelector(".card-expense .card-amount");
-
         const balanceCard = document.querySelector(".card-balance .card-amount");
 
-
-        if (incomeCard) {
-
-            incomeCard.textContent = "₹" + formatMoney(totalIncome);
-        }
-
-        if (expenseCard) {
-
-            expenseCard.textContent = "₹" + formatMoney(totalExpense);
-        }
-
-        if (balanceCard) {
-
-            balanceCard.textContent = "₹" + formatMoney(balance);
-        }
+        if (incomeCard) incomeCard.textContent = "₹" + formatMoney(totalIncome);
+        if (expenseCard) expenseCard.textContent = "₹" + formatMoney(totalExpense);
+        if (balanceCard) balanceCard.textContent = "₹" + formatMoney(balance);
     }
 
-
-    /* ==========================================
-       MONEY FORMAT
-       ========================================== */
-
     function formatMoney(amount) {
-
         return Number(amount || 0)
             .toLocaleString("en-IN", {
                 minimumFractionDigits: 2,
@@ -377,17 +407,8 @@ document.addEventListener("DOMContentLoaded", function () {
             });
     }
 
-
-    /* ==========================================
-       HTML SAFETY
-       ========================================== */
-
     function escapeHTML(value) {
-
-        if (value === null || value === undefined) {
-            return "";
-        }
-
+        if (value === null || value === undefined) return "";
         return String(value)
             .replace(/&/g, "&amp;")
             .replace(/</g, "&lt;")
@@ -396,11 +417,103 @@ document.addEventListener("DOMContentLoaded", function () {
             .replace(/'/g, "&#039;");
     }
 
+    /* ==========================================
+       REAL NOTIFICATIONS ENGINE (100% REAL DATA)
+       ========================================== */
+    function renderNotifications(transactions) {
+        const list = document.getElementById("notifications-list");
+        if (!list) return;
+
+        list.innerHTML = "";
+
+        if (!transactions || transactions.length === 0) {
+            list.innerHTML = `
+                <div style="padding: 0.85rem; border-left: 4px solid var(--primary); background: #f8fafc; border-radius: 6px;">
+                    <strong>ℹ️ No Transactions Recorded:</strong> Add income or expenses to view automated database alerts.
+                </div>
+            `;
+            return;
+        }
+
+        let totalIncome = 0;
+        let totalExpense = 0;
+        const categoryExpenses = {};
+        let highestExpenseTx = null;
+        let latestIncomeTx = null;
+
+        transactions.forEach(tx => {
+            const amt = Number(tx.amount || 0);
+            const type = String(tx.type || "").toLowerCase();
+            let cat = String(tx.category || "others").toLowerCase();
+            if (cat === "other") cat = "others";
+
+            if (type === "income") {
+                totalIncome += amt;
+                if (!latestIncomeTx) latestIncomeTx = tx;
+            } else if (type === "expense") {
+                totalExpense += amt;
+                categoryExpenses[cat] = (categoryExpenses[cat] || 0) + amt;
+                if (!highestExpenseTx || amt > Number(highestExpenseTx.amount || 0)) {
+                    highestExpenseTx = tx;
+                }
+            }
+        });
+
+        const balance = totalIncome - totalExpense;
+
+        // 1. Account Balance Overview
+        const balanceCard = document.createElement("div");
+        balanceCard.style.cssText = "padding: 0.85rem; border-left: 4px solid var(--balance); background: #eff6ff; border-radius: 6px;";
+        balanceCard.innerHTML = `<strong>💰 Account Balance Overview:</strong> Your net balance is <strong>₹${formatMoney(balance)}</strong> (Total Income: ₹${formatMoney(totalIncome)} | Total Expenses: ₹${formatMoney(totalExpense)}).`;
+        list.appendChild(balanceCard);
+
+        // 2. Most Recent Transaction Alert
+        const latestTx = transactions[0];
+        if (latestTx) {
+            const isInc = String(latestTx.type).toLowerCase() === "income";
+            const sign = isInc ? "+" : "-";
+            const color = isInc ? "var(--income)" : "var(--expense)";
+            const bg = isInc ? "#ecfdf5" : "#fef2f2";
+
+            const recentCard = document.createElement("div");
+            recentCard.style.cssText = `padding: 0.85rem; border-left: 4px solid ${color}; background: ${bg}; border-radius: 6px;`;
+            recentCard.innerHTML = `<strong>⚡ Recent Activity (${escapeHTML(latestTx.date || latestTx.transaction_date)}):</strong> Logged <strong>${escapeHTML(latestTx.title)}</strong> [${escapeHTML(latestTx.category)}] for <span style="color:${color}; font-weight:700;">${sign}₹${formatMoney(latestTx.amount)}</span>.`;
+            list.appendChild(recentCard);
+        }
+
+        // 3. Highest Single Expense Alert
+        if (highestExpenseTx) {
+            const highCard = document.createElement("div");
+            highCard.style.cssText = "padding: 0.85rem; border-left: 4px solid var(--expense); background: #fef2f2; border-radius: 6px;";
+            highCard.innerHTML = `<strong>⚠️ High Expense Alert:</strong> Highest single spending record is <strong>${escapeHTML(highestExpenseTx.title)}</strong> of <span style="color:var(--expense); font-weight:700;">₹${formatMoney(highestExpenseTx.amount)}</span> on ${escapeHTML(highestExpenseTx.date || highestExpenseTx.transaction_date)}.`;
+            list.appendChild(highCard);
+        }
+
+        // 4. Highest Category Spending Alert
+        const topCat = Object.keys(categoryExpenses).sort((a, b) => categoryExpenses[b] - categoryExpenses[a])[0];
+        if (topCat) {
+            const catName = topCat.charAt(0).toUpperCase() + topCat.slice(1);
+            const catAmt = categoryExpenses[topCat];
+            const pct = totalExpense > 0 ? Math.round((catAmt / totalExpense) * 100) : 0;
+
+            const catCard = document.createElement("div");
+            catCard.style.cssText = "padding: 0.85rem; border-left: 4px solid #f59e0b; background: #fffbeb; border-radius: 6px;";
+            catCard.innerHTML = `<strong>📊 Category Insights:</strong> Your top spending category is <strong>${escapeHTML(catName)}</strong> at <strong>₹${formatMoney(catAmt)}</strong> (${pct}% of total expenses).`;
+            list.appendChild(catCard);
+        }
+
+        // 5. Income Summary Alert
+        if (latestIncomeTx) {
+            const incCard = document.createElement("div");
+            incCard.style.cssText = "padding: 0.85rem; border-left: 4px solid var(--income); background: #ecfdf5; border-radius: 6px;";
+            incCard.innerHTML = `<strong>✅ Latest Income Logged:</strong> Received <strong>₹${formatMoney(latestIncomeTx.amount)}</strong> from <strong>${escapeHTML(latestIncomeTx.title)}</strong> on ${escapeHTML(latestIncomeTx.date || latestIncomeTx.transaction_date)}.`;
+            list.appendChild(incCard);
+        }
+    }
 
     /* ==========================================
        RENDER EXPENSE OVERVIEW CHART (CANVAS)
        ========================================== */
-
     function renderExpenseOverviewChart(transactions) {
         const canvas = document.getElementById("expenseChart");
         if (!canvas) return;
@@ -411,13 +524,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
         ctx.clearRect(0, 0, width, height);
 
-        // Calculate expense totals by category
         const categoryTotals = {};
         let totalExpense = 0;
 
         transactions.forEach(tx => {
             if (String(tx.type).toLowerCase() === "expense") {
-                const cat = (tx.category || "others").toLowerCase();
+                let cat = (tx.category || "others").toLowerCase();
+                if (cat === "other") cat = "others";
                 const amt = Number(tx.amount || 0);
                 categoryTotals[cat] = (categoryTotals[cat] || 0) + amt;
                 totalExpense += amt;
@@ -434,7 +547,6 @@ document.addEventListener("DOMContentLoaded", function () {
             return;
         }
 
-        // Color palette for categories
         const colors = {
             food: "#f59e0b",
             travel: "#3b82f6",
@@ -445,7 +557,6 @@ document.addEventListener("DOMContentLoaded", function () {
             others: "#64748b"
         };
 
-        // Draw Donut Chart
         const centerX = width / 3;
         const centerY = height / 2;
         const outerRadius = Math.min(centerX, centerY) - 20;
@@ -468,7 +579,6 @@ document.addEventListener("DOMContentLoaded", function () {
             startAngle = endAngle;
         });
 
-        // Center Text
         ctx.fillStyle = "#0f172a";
         ctx.font = "bold 14px system-ui";
         ctx.textAlign = "center";
@@ -478,7 +588,6 @@ document.addEventListener("DOMContentLoaded", function () {
         ctx.fillStyle = "#ef4444";
         ctx.fillText("₹" + Math.round(totalExpense).toLocaleString("en-IN"), centerX, centerY + 14);
 
-        // Draw Legend
         const legendX = width * 0.62;
         let legendY = 35;
 
@@ -488,13 +597,11 @@ document.addEventListener("DOMContentLoaded", function () {
             const amt = categoryTotals[cat];
             const pct = Math.round((amt / totalExpense) * 100);
 
-            // Color box
             ctx.fillStyle = color;
             ctx.beginPath();
             ctx.roundRect ? ctx.roundRect(legendX, legendY - 10, 12, 12, 3) : ctx.rect(legendX, legendY - 10, 12, 12);
             ctx.fill();
 
-            // Label
             ctx.fillStyle = "#1e293b";
             ctx.font = "500 12px system-ui";
             const formattedCat = cat.charAt(0).toUpperCase() + cat.slice(1);
@@ -504,11 +611,9 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-
     /* ==========================================
        RENDER ANALYTICS SECTION
        ========================================== */
-
     function renderAnalyticsSection(transactions) {
         const container = document.getElementById("category-bars-container");
         if (!container) return;
@@ -520,7 +625,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
         transactions.forEach(tx => {
             if (String(tx.type).toLowerCase() === "expense") {
-                const cat = (tx.category || "others").toLowerCase();
+                let cat = (tx.category || "others").toLowerCase();
+                if (cat === "other") cat = "others";
                 const amt = Number(tx.amount || 0);
                 categoryTotals[cat] = (categoryTotals[cat] || 0) + amt;
                 totalExpense += amt;
@@ -563,7 +669,6 @@ document.addEventListener("DOMContentLoaded", function () {
             container.innerHTML += barHtml;
         });
 
-        // Also render analytics comparison chart
         renderAnalyticsBarChart(transactions);
     }
 
@@ -596,7 +701,6 @@ document.addEventListener("DOMContentLoaded", function () {
         const incHeight = (inc / maxVal) * maxBarHeight;
         const expHeight = (exp / maxVal) * maxBarHeight;
 
-        // Income Bar
         const incX = startX;
         const incY = chartBottom - incHeight;
         ctx.fillStyle = "#10b981";
@@ -610,7 +714,6 @@ document.addEventListener("DOMContentLoaded", function () {
         ctx.fillText("Income", incX + barWidth / 2, chartBottom + 20);
         ctx.fillText("₹" + Math.round(inc).toLocaleString("en-IN"), incX + barWidth / 2, incY - 10);
 
-        // Expense Bar
         const expX = startX + barWidth + gap;
         const expY = chartBottom - expHeight;
         ctx.fillStyle = "#ef4444";
@@ -622,11 +725,9 @@ document.addEventListener("DOMContentLoaded", function () {
         ctx.fillText("₹" + Math.round(exp).toLocaleString("en-IN"), expX + barWidth / 2, expY - 10);
     }
 
-
     /* ==========================================
        SUBSCRIPTIONS MANAGEMENT
        ========================================== */
-
     function loadSubscriptions() {
         fetch("/api/subscriptions")
             .then(res => res.json())
@@ -700,150 +801,36 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-
     /* ==========================================
-       DATABASE CONNECTION CONFIGURATION
+       ADD TRANSACTION (AJAX)
        ========================================== */
-
-    function checkDbStatus() {
-        const statusEl = document.getElementById("db-conn-status");
-        const urlInput = document.getElementById("db-connection-url");
-
-        fetch("/api/db-config")
-            .then(res => res.json())
-            .then(data => {
-                if (urlInput && data.db_url) {
-                    urlInput.value = data.db_url;
-                }
-                if (statusEl) {
-                    if (data.isConnected) {
-                        statusEl.innerHTML = `<span style="color: #10b981;">🟢 Connected to External PostgreSQL DB</span>`;
-                    } else {
-                        statusEl.innerHTML = `<span style="color: #f59e0b;">🟠 Using Embedded Local PostgreSQL</span>`;
-                    }
-                }
-            })
-            .catch(() => {
-                if (statusEl) statusEl.textContent = "Error checking DB status";
-            });
-    }
-
-    const dbConfigForm = document.getElementById("db-config-form");
-    if (dbConfigForm) {
-        dbConfigForm.addEventListener("submit", function(e) {
-            e.preventDefault();
-            const dbUrl = document.getElementById("db-connection-url").value;
-            const statusEl = document.getElementById("db-conn-status");
-
-            if (statusEl) statusEl.innerHTML = `<span style="color: #3b82f6;">⏳ Connecting & verifying schema...</span>`;
-
-            fetch("/api/db-config", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ db_url: dbUrl })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    alert(data.message);
-                    checkDbStatus();
-                    loadTransactions();
-                } else {
-                    alert("Error: " + (data.error || "Failed to connect"));
-                    checkDbStatus();
-                }
-            })
-            .catch(err => {
-                alert("Connection failed: " + err.message);
-                checkDbStatus();
-            });
-        });
-    }
-
-    /* ==========================================
-       JAVA CODE INSPECTOR (SETTINGS TAB)
-       ========================================== */
-
-    function loadJavaCode() {
-        if (Object.keys(javaCodeCache).length > 0) {
-            showTabCode("tab-db");
-            return;
-        }
-
-        fetch("/api/java-code")
-            .then(res => res.json())
-            .then(data => {
-                javaCodeCache = data;
-                showTabCode("tab-db");
-            })
-            .catch(err => {
-                const codeDisplay = document.getElementById("code-display");
-                if (codeDisplay) codeDisplay.textContent = "Failed to load Java source code.";
-            });
-    }
-
-    function showTabCode(tabId) {
-        const codeDisplay = document.getElementById("code-display");
-        if (!codeDisplay) return;
-
-        let content = "";
-        if (tabId === "tab-db") content = javaCodeCache.dbJava || "";
-        else if (tabId === "tab-view") content = javaCodeCache.viewServlet || "";
-        else if (tabId === "tab-add") content = javaCodeCache.addServlet || "";
-        else if (tabId === "tab-schema") content = javaCodeCache.schemaSql || "";
-        else if (tabId === "tab-webxml") content = javaCodeCache.webXml || "";
-
-        codeDisplay.textContent = content;
-    }
-
-    const tabBtns = document.querySelectorAll(".tab-btn");
-    tabBtns.forEach(btn => {
-        btn.addEventListener("click", function() {
-            tabBtns.forEach(b => b.classList.remove("active"));
-            this.classList.add("active");
-            const targetTab = this.getAttribute("data-tab");
-            showTabCode(targetTab);
-        });
-    });
-
-
-    /* ==========================================
-       FORM VALIDATION & AJAX ADD TRANSACTION
-       ========================================== */
-
     const form = document.getElementById("quick-add-form");
 
     if (form) {
-
         form.addEventListener("submit", function (event) {
+            event.preventDefault();
 
             const title = document.getElementById("transaction-title");
             const amount = document.getElementById("transaction-amount");
             const date = document.getElementById("transaction_date");
 
             if (!title.value.trim()) {
-                event.preventDefault();
                 alert("Please enter transaction title.");
                 title.focus();
                 return;
             }
 
             if (!amount.value || Number(amount.value) <= 0) {
-                event.preventDefault();
                 alert("Please enter a valid amount.");
                 amount.focus();
                 return;
             }
 
             if (!date.value) {
-                event.preventDefault();
                 alert("Please select transaction date.");
                 date.focus();
                 return;
             }
-
-            // Perform smooth AJAX POST to keep single page experience fast
-            event.preventDefault();
 
             const formData = new URLSearchParams(new FormData(form));
 
@@ -867,6 +854,8 @@ document.addEventListener("DOMContentLoaded", function () {
                     dateInput.value = new Date().toISOString().split("T")[0];
                 }
                 loadTransactions();
+                if (window.refreshAnalyticsChart) window.refreshAnalyticsChart();
+                window.dispatchEvent(new CustomEvent("transactionsUpdated"));
             })
             .catch(err => {
                 console.error("Error submitting form:", err);
@@ -875,11 +864,9 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-
     /* ==========================================
        INITIAL LOAD
        ========================================== */
-
     loadTransactions();
 
 });

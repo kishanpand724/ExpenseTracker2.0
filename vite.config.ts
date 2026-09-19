@@ -9,6 +9,8 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        '@bklitui/ui/charts': path.resolve(__dirname, './src/bklitui/charts.tsx'),
+        '@bklitui/ui': path.resolve(__dirname, './src/bklitui'),
       },
     },
     server: {

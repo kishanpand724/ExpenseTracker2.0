@@ -565,3 +565,64 @@ body {
     flex-direction: column;
   }
 }
+
+/* Modal Overlay */
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-card {
+  background: var(--bg-card);
+  padding: 1.75rem;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  width: 90%;
+  max-width: 480px;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+.modal-header h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.btn-cancel {
+  padding: 0.65rem 1.25rem;
+  border: 1px solid var(--border-color);
+  background: #ffffff;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-cancel:hover {
+  background: #f1f5f9;
+}
+

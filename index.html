@@ -27,7 +27,7 @@
                     <li><a href="#subscriptions" data-section="subscriptions-section">Subscriptions</a></li>
                     <li><a href="#analytics" data-section="analytics-section">Analytics</a></li>
                     <li><a href="#notifications" data-section="notifications-section">Notifications</a></li>
-                    <li><a href="#settings" data-section="settings-section">Settings & Java Code</a></li>
+                    <li><a href="#settings" data-section="settings-section">Settings</a></li>
                 </ul>
             </nav>
         </aside>
@@ -43,14 +43,11 @@
                         <h1>Dashboard</h1>
                         <p class="welcome-message">Welcome back! Here is your financial overview.</p>
                     </div>
-                    <div class="header-actions">
-                        <button class="btn-quick-add" id="quick-add-btn">+ Quick Add</button>
-                    </div>
                 </header>
 
-                <!-- Quick Add Area -->
+                <!-- Add Transaction Area -->
                 <section class="quick-add-section" id="quick-add-section">
-                    <h2>Quick Add Transaction</h2>
+                    <h2>Add Transaction</h2>
                     <form class="quick-add-form" id="quick-add-form" action="add-transaction" method="POST">
                         <div class="form-group">
                             <label for="transaction-type">Type</label>
@@ -98,17 +95,17 @@
                 <section class="summary-cards">
                     <div class="card card-income">
                         <span class="card-label">Total Income</span>
-                        <h3 class="card-amount">₹50,000.00</h3>
+                        <h3 class="card-amount">₹0.00</h3>
                     </div>
 
                     <div class="card card-expense">
                         <span class="card-label">Total Expenses</span>
-                        <h3 class="card-amount">₹32,500.00</h3>
+                        <h3 class="card-amount">₹0.00</h3>
                     </div>
 
                     <div class="card card-balance">
                         <span class="card-label">Remaining Balance</span>
-                        <h3 class="card-amount">₹17,500.00</h3>
+                        <h3 class="card-amount">₹0.00</h3>
                     </div>
                 </section>
 
@@ -249,22 +246,10 @@
                 <header class="dashboard-header">
                     <div class="header-title">
                         <h1>Analytics</h1>
-                        <p class="welcome-message">In-depth insights into your spending habits.</p>
+                        <p class="welcome-message">Comprehensive spending analysis and financial insights.</p>
                     </div>
                 </header>
-                <div class="card" style="margin-bottom: 1.5rem;">
-                    <h2>Category Breakdown</h2>
-                    <div id="category-bars-container" style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.85rem;">
-                        <!-- Category Progress Bars rendered by JS -->
-                    </div>
-                </div>
-                
-                <div class="card">
-                    <h2>Spending vs Income Analysis</h2>
-                    <div style="margin-top: 1rem; text-align: center;">
-                        <canvas id="analyticsChart" width="600" height="260"></canvas>
-                    </div>
-                </div>
+                <div id="bklit-analytics-chart-root" style="width: 100%;"></div>
             </section>
 
             <!-- Notifications Section -->
@@ -272,79 +257,64 @@
                 <header class="dashboard-header">
                     <div class="header-title">
                         <h1>Notifications</h1>
-                        <p class="welcome-message">Stay updated with alerts and reminder history.</p>
+                        <p class="welcome-message">Important updates and transaction notifications.</p>
                     </div>
                 </header>
                 <div class="card">
-                    <h2>Recent Alerts & System Notifications</h2>
+                    <h2>Live Activity & System Notifications</h2>
                     <div id="notifications-list" style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.75rem;">
-                        <div style="padding: 0.85rem; border-left: 4px solid var(--income); background: #ecfdf5; border-radius: 6px;">
-                            <strong>✅ System Ready:</strong> Java Servlet & PostgreSQL API endpoints configured and running smoothly.
-                        </div>
-                        <div style="padding: 0.85rem; border-left: 4px solid var(--balance); background: #eff6ff; border-radius: 6px;">
-                            <strong>💡 Smart Insight:</strong> Your balance is healthy! Keep tracking daily expenses for maximum clarity.
-                        </div>
-                        <div style="padding: 0.85rem; border-left: 4px solid var(--expense); background: #fef2f2; border-radius: 6px;">
-                            <strong>🔔 Upcoming Bill:</strong> Netflix Subscription due on October 1st (₹649.00).
-                        </div>
+                        <!-- Generated dynamically from transactions -->
                     </div>
                 </div>
             </section>
 
-            <!-- Settings & Java Code Inspector Section -->
+            <!-- Settings Section -->
             <section id="settings-section" class="content-section">
                 <header class="dashboard-header">
                     <div class="header-title">
-                        <h1>Settings & Java Source Code</h1>
-                        <p class="welcome-message">Manage preferences and view your complete Java JSP / Servlet codebase & PostgreSQL setup.</p>
+                        <h1>Settings</h1>
+                        <p class="welcome-message">Personal preferences and account configuration.</p>
                     </div>
                 </header>
 
                 <div class="card" style="margin-bottom: 1.5rem;">
-                    <h2>PostgreSQL Database Connection Configuration</h2>
+                    <h2>Regional & Display Preferences</h2>
                     <p style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.25rem;">
-                        Connect your live Cloud / External PostgreSQL database (e.g. Neon, Supabase, Aiven, Railway, or local tunnel URL).
+                        Manage your currency formatting, regional standards, and display options.
                     </p>
-                    <form id="db-config-form" style="margin-top: 1rem; display: flex; flex-direction: column; gap: 1rem;">
-                        <div>
-                            <label style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 600; display: block; margin-bottom: 0.25rem;">
-                                PostgreSQL Connection URL / Connection String
-                            </label>
-                            <input type="text" id="db-connection-url" name="db_url" placeholder="postgresql://postgres:kp724@your-db-host.com:5432/expense" style="width: 100%; padding: 0.65rem 0.85rem; border: 1px solid var(--border-color); border-radius: 6px; font-family: monospace; font-size: 0.9rem;" />
+                    <div style="margin-top: 1.25rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem;">
+                        <div style="padding: 1rem; background: #f8fafc; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+                            <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Currency</div>
+                            <div style="font-size: 1rem; font-weight: 700; color: var(--text-primary); margin-top: 0.25rem;">INR (₹) - Indian Rupee</div>
                         </div>
-                        <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
-                            <button type="submit" class="btn-submit" style="width: auto; padding: 0.65rem 1.5rem;">
-                                🔌 Connect & Test Database
-                            </button>
-                            <span id="db-conn-status" style="font-size: 0.875rem; font-weight: 600; color: var(--text-secondary);">
-                                Checking status...
-                            </span>
+                        <div style="padding: 1rem; background: #f8fafc; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+                            <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Timezone</div>
+                            <div style="font-size: 1rem; font-weight: 700; color: var(--primary); margin-top: 0.25rem;">Asia / Kolkata (IST)</div>
                         </div>
-                    </form>
-                    
-                    <div style="margin-top: 1.25rem; padding: 0.85rem; background: #f8fafc; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.825rem; color: var(--text-secondary);">
-                        <strong>ℹ️ How to connect your local or cloud PostgreSQL database:</strong>
-                        <ul style="margin-left: 1.25rem; margin-top: 0.35rem; display: flex; flex-direction: column; gap: 0.25rem;">
-                            <li><strong>Cloud DB (Recommended):</strong> Paste your connection string from <em>Supabase, Neon.tech, Aiven, or Railway</em> (e.g. <code>postgresql://postgres.xxx:password@ep-xxx.neon.tech/neondb?sslmode=require</code>).</li>
-                            <li><strong>Local DB:</strong> Because this web app runs in a secure cloud container, <code>localhost:5432</code> on your computer isn't directly reachable. Use <strong>ngrok</strong> (e.g., <code>ngrok tcp 5432</code>) or a free cloud DB on Neon/Supabase to get a public URL!</li>
-                        </ul>
+                        <div style="padding: 1rem; background: #f8fafc; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+                            <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Storage Mode</div>
+                            <div style="font-size: 1rem; font-weight: 700; color: var(--text-primary); margin-top: 0.25rem;">Cloud Synced</div>
+                        </div>
                     </div>
                 </div>
 
                 <div class="card">
-                    <h2>Java JSP & Servlets Source Code Inspector</h2>
-                    <p style="color: var(--text-secondary); font-size: 0.9rem; margin-top: 0.25rem;">Inspect your complete Java project files including <code>Db.java</code>, <code>ViewTransactionsServlet.java</code>, <code>AddTransactionServlet.java</code>, <code>web.xml</code>, and <code>schema.sql</code>.</p>
-
-                    <div class="tab-buttons" style="margin-top: 1.25rem;">
-                        <button class="tab-btn active" data-tab="tab-db">Db.java</button>
-                        <button class="tab-btn" data-tab="tab-view">ViewTransactionsServlet.java</button>
-                        <button class="tab-btn" data-tab="tab-add">AddTransactionServlet.java</button>
-                        <button class="tab-btn" data-tab="tab-schema">schema.sql</button>
-                        <button class="tab-btn" data-tab="tab-webxml">web.xml</button>
-                    </div>
-
-                    <div id="tab-content-container">
-                        <pre id="code-display" class="code-box">Loading Java Code...</pre>
+                    <h2>Tracker Preferences</h2>
+                    <div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 1rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 0.85rem; border-bottom: 1px solid var(--border-color);">
+                            <div>
+                                <strong style="display: block; color: var(--text-primary);">Automatic Sync</strong>
+                                <span style="font-size: 0.825rem; color: var(--text-muted);">Sync edits and updates instantly across all views</span>
+                            </div>
+                            <span style="font-size: 0.85rem; font-weight: 600; color: #10b981; background: #ecfdf5; padding: 0.25rem 0.65rem; border-radius: 999px;">Enabled</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <strong style="display: block; color: var(--text-primary);">Smart Spending Alerts</strong>
+                                <span style="font-size: 0.825rem; color: var(--text-muted);">Receive automatic alerts on high expense transactions</span>
+                            </div>
+                            <span style="font-size: 0.85rem; font-weight: 600; color: #10b981; background: #ecfdf5; padding: 0.25rem 0.65rem; border-radius: 999px;">Active</span>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -353,7 +323,58 @@
 
     </div>
 
+    <!-- Edit Transaction Modal -->
+    <div id="edit-modal" class="modal-backdrop" style="display: none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h2>Edit Transaction</h2>
+                <button type="button" id="close-edit-modal" class="btn-close">&times;</button>
+            </div>
+            <form id="edit-transaction-form" class="modal-form">
+                <input type="hidden" id="edit-tx-id" name="id" />
+                <div class="form-group" style="margin-bottom: 0.85rem;">
+                    <label for="edit-tx-type" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.25rem; color: var(--text-secondary);">Type</label>
+                    <select id="edit-tx-type" name="type" style="width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--border-color); border-radius: 6px;" required>
+                        <option value="expense">Expense</option>
+                        <option value="income">Income</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0.85rem;">
+                    <label for="edit-tx-title" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.25rem; color: var(--text-secondary);">Title</label>
+                    <input type="text" id="edit-tx-title" name="title" style="width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--border-color); border-radius: 6px;" required />
+                </div>
+                <div class="form-group" style="margin-bottom: 0.85rem;">
+                    <label for="edit-tx-amount" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.25rem; color: var(--text-secondary);">Amount (₹)</label>
+                    <input type="number" id="edit-tx-amount" name="amount" step="0.01" min="0.01" style="width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--border-color); border-radius: 6px;" required />
+                </div>
+                <div class="form-group" style="margin-bottom: 0.85rem;">
+                    <label for="edit-tx-category" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.25rem; color: var(--text-secondary);">Category</label>
+                    <select id="edit-tx-category" name="category" style="width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--border-color); border-radius: 6px;" required>
+                        <option value="food">Food</option>
+                        <option value="travel">Travel</option>
+                        <option value="shopping">Shopping</option>
+                        <option value="bills">Bills</option>
+                        <option value="entertainment">Entertainment</option>
+                        <option value="education">Education</option>
+                        <option value="salary">Salary</option>
+                        <option value="others">Others</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0.85rem;">
+                    <label for="edit-tx-date" style="display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.25rem; color: var(--text-secondary);">Date</label>
+                    <input type="date" id="edit-tx-date" name="transaction_date" style="width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--border-color); border-radius: 6px;" required />
+                </div>
+                <div class="modal-actions" style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.25rem;">
+                    <button type="button" id="cancel-edit-modal" class="btn-cancel">Cancel</button>
+                    <button type="submit" class="btn-submit" style="width: auto; padding: 0.65rem 1.25rem;">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script type="module" src="/src/main.tsx"></script>
     <script src="/script.js"></script>
 </body>
 
 </html>
+
