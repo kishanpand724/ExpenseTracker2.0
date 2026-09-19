@@ -1,0 +1,8 @@
+{
+  "name": "Expense Tracker 2.0",
+  "description": "A full-stack Expense Tracker with Java Servlet / JSP backend architecture, PostgreSQL database integration, financial dashboard summary, analytics charts, and transaction management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
