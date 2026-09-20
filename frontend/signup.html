@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign Up - Personal Expense Tracker</title>
+    <script src="apiConfig.js"></script>
     <link rel="stylesheet" href="style.css">
     <style>
         body {
@@ -257,8 +258,9 @@
                 signupBtn.disabled = true;
                 signupBtn.querySelector("span").textContent = "Creating Account...";
 
-                // Submit to Java SignupServlet using relative context URL
-                fetch("signup", {
+                // Submit to Signup endpoint with session credentials
+                const signupUrl = typeof window.getApiUrl === "function" ? window.getApiUrl("signup") : "signup";
+                fetch(signupUrl, {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",

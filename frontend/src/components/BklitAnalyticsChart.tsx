@@ -8,6 +8,7 @@ import {
   ChartTooltip,
   Legend,
 } from "@bklitui/ui/charts";
+import { getApiUrl } from "../config/api";
 
 interface Transaction {
   id: number;
@@ -95,7 +96,7 @@ export const BklitAnalyticsChart: React.FC = () => {
         if (endDate) params.append("end_date", endDate);
       }
 
-      const response = await fetch(`daily-trends?${params.toString()}`, {
+      const response = await fetch(getApiUrl(`daily-trends?${params.toString()}`), {
         credentials: "include",
         headers: { Accept: "application/json" },
       });

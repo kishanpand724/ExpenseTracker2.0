@@ -5,20 +5,22 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    root: path.resolve(process.cwd(), 'frontend'),
     plugins: [react(), tailwindcss()],
     resolve: {
-      alias: {
-        '@': path.resolve(__dirname, '.'),
-        '@bklitui/ui/charts': path.resolve(__dirname, './src/bklitui/charts.tsx'),
-        '@bklitui/ui': path.resolve(__dirname, './src/bklitui'),
-      },
+      alias: [
+        { find: '@bklitui/ui/charts', replacement: path.resolve(process.cwd(), 'frontend/src/bklitui/charts.tsx') },
+        { find: '@bklitui/ui', replacement: path.resolve(process.cwd(), 'frontend/src/bklitui') },
+        { find: '@', replacement: path.resolve(process.cwd(), 'frontend/src') },
+      ],
     },
     server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
-      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+    },
+    build: {
+      outDir: path.resolve(process.cwd(), 'dist'),
+      emptyOutDir: true,
     },
   };
 });

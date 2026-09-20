@@ -2,12 +2,22 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import { Pool } from "pg";
 import { PGlite } from "@electric-sql/pglite";
 import session from "express-session";
 import cookieParser from "cookie-parser";
 import bcrypt from "bcryptjs";
+import dotenv from "dotenv";
+
+const currentDir = typeof __dirname !== "undefined"
+  ? __dirname
+  : path.dirname(fileURLToPath(import.meta.url));
+
+// Load environment variables from backend/.env or root .env
+dotenv.config({ path: path.join(currentDir, ".env") });
+dotenv.config();
 
 // Helper password functions matching Java PasswordUtils (PBKDF2WithHmacSHA256) & bcrypt
 function hashPasswordPbkdf2(password: string): string {
@@ -51,20 +61,42 @@ function verifyPasswordHash(password: string, storedHash: string, userEmail?: st
 const app = express();
 const PORT = 3000;
 
+// Reverse proxy support for production deployment (Render, Cloud Run, etc.)
+app.set("trust proxy", 1);
+
+// CORS configuration for cross-origin deployment (e.g. Vercel frontend calling Render backend)
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept");
+  }
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 // Body parser & Cookie / Session middlewares
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(cookieParser());
+
+const isProd = process.env.NODE_ENV === "production";
+const isCrossOrigin = process.env.CROSS_ORIGIN === "true" || !!process.env.FRONTEND_URL;
+
 app.use(
   session({
     name: "JSESSIONID",
-    secret: "expense_tracker_secure_session_secret_2026",
+    secret: process.env.SESSION_SECRET || "expense_tracker_secure_session_secret_2026",
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: false,
+      secure: isProd && isCrossOrigin,
       httpOnly: true,
-      sameSite: "lax",
+      sameSite: isCrossOrigin ? "none" : "lax",
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
   })
@@ -92,10 +124,18 @@ const db = new PGlite(dbPath);
 
 const DB_CONFIG_FILE = path.join(DATA_DIR, "db_config.json");
 
-// Optional Remote PostgreSQL Pool if external DATABASE_URL provided or saved in config
-const DEFAULT_SUPABASE_URL = "postgres://postgres:Kishan%40772244@db.fknwrkisdhwjbnzwnifo.supabase.co:5432/postgres?sslmode=require";
+// Optional Remote PostgreSQL Pool if external DATABASE_URL or SUPABASE_* parameters provided
 let externalPgPool: Pool | null = null;
-let currentDbUrl = process.env.DATABASE_URL || DEFAULT_SUPABASE_URL;
+let currentDbUrl = process.env.DATABASE_URL || "";
+
+if (!currentDbUrl && process.env.SUPABASE_HOST && process.env.SUPABASE_PASSWORD) {
+  const user = encodeURIComponent(process.env.SUPABASE_USER || "postgres");
+  const pass = encodeURIComponent(process.env.SUPABASE_PASSWORD);
+  const host = process.env.SUPABASE_HOST;
+  const port = process.env.SUPABASE_PORT || "5432";
+  const dbName = process.env.SUPABASE_DB || "postgres";
+  currentDbUrl = `postgresql://${user}:${pass}@${host}:${port}/${dbName}?sslmode=require`;
+}
 
 function initExternalPgPool(url: string) {
   if (!url || url.trim() === "") return null;
@@ -1148,23 +1188,35 @@ app.post("/api/db-config", async (req, res) => {
 // Java Code Inspector Endpoint
 app.get("/api/java-code", (req, res) => {
   try {
-    const dbJava = fs.readFileSync(path.join(process.cwd(), "src/main/java/database/Db.java"), "utf-8");
-    const dbInitializer = fs.readFileSync(path.join(process.cwd(), "src/main/java/database/DatabaseInitializer.java"), "utf-8");
-    const passwordUtils = fs.readFileSync(path.join(process.cwd(), "src/main/java/util/PasswordUtils.java"), "utf-8");
-    const loginServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/LoginServlet.java"), "utf-8");
-    const signupServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/SignupServlet.java"), "utf-8");
-    const logoutServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/LogoutServlet.java"), "utf-8");
-    const authCheckServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/AuthCheckServlet.java"), "utf-8");
-    const viewServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/ViewTransactionsServlet.java"), "utf-8");
-    const addServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/AddTransactionServlet.java"), "utf-8");
-    const editServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/EditTransactionServlet.java"), "utf-8");
-    const deleteServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/DeleteTransactionServlet.java"), "utf-8");
-    const subscriptionsServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/SubscriptionsServlet.java"), "utf-8");
-    const deleteSubServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/DeleteSubscriptionServlet.java"), "utf-8");
-    const categoryExpensesServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/CategoryExpensesServlet.java"), "utf-8");
-    const dailyTrendsServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/DailyTrendsServlet.java"), "utf-8");
-    const schemaSql = fs.readFileSync(path.join(process.cwd(), "schema.sql"), "utf-8");
-    const webXml = fs.readFileSync(path.join(process.cwd(), "src/main/webapp/WEB-INF/web.xml"), "utf-8");
+    const findFile = (relPath: string) => {
+      const candidates = [
+        path.join(currentDir, relPath),
+        path.join(process.cwd(), "backend", relPath),
+        path.join(process.cwd(), relPath)
+      ];
+      for (const p of candidates) {
+        if (fs.existsSync(p)) return fs.readFileSync(p, "utf-8");
+      }
+      return "// File located in Java project repository";
+    };
+
+    const dbJava = findFile("src/main/java/database/Db.java");
+    const dbInitializer = findFile("src/main/java/database/DatabaseInitializer.java");
+    const passwordUtils = findFile("src/main/java/util/PasswordUtils.java");
+    const loginServlet = findFile("src/main/java/servlet/LoginServlet.java");
+    const signupServlet = findFile("src/main/java/servlet/SignupServlet.java");
+    const logoutServlet = findFile("src/main/java/servlet/LogoutServlet.java");
+    const authCheckServlet = findFile("src/main/java/servlet/AuthCheckServlet.java");
+    const viewServlet = findFile("src/main/java/servlet/ViewTransactionsServlet.java");
+    const addServlet = findFile("src/main/java/servlet/AddTransactionServlet.java");
+    const editServlet = findFile("src/main/java/servlet/EditTransactionServlet.java");
+    const deleteServlet = findFile("src/main/java/servlet/DeleteTransactionServlet.java");
+    const subscriptionsServlet = findFile("src/main/java/servlet/SubscriptionsServlet.java");
+    const deleteSubServlet = findFile("src/main/java/servlet/DeleteSubscriptionServlet.java");
+    const categoryExpensesServlet = findFile("src/main/java/servlet/CategoryExpensesServlet.java");
+    const dailyTrendsServlet = findFile("src/main/java/servlet/DailyTrendsServlet.java");
+    const schemaSql = findFile("schema.sql");
+    const webXml = findFile("src/main/webapp/WEB-INF/web.xml");
 
     res.json({
       dbJava,
@@ -1184,33 +1236,73 @@ app.get("/api/java-code", (req, res) => {
       dailyTrendsServlet,
       schemaSql,
       webXml,
-      dbUrl: "jdbc:postgresql://db.fknwrkisdhwjbnzwnifo.supabase.co:5432/postgres?sslmode=require",
-      dbUser: "postgres",
-      dbPass: "[SECURE_ENV_VAR]"
+      dbUrl: currentDbUrl ? currentDbUrl.replace(/^postgres(ql)?:\/\//, "jdbc:postgresql://") : "jdbc:postgresql://[CONFIGURED_IN_ENV]:5432/postgres",
+      dbUser: process.env.SUPABASE_USER || "postgres",
+      dbPass: "[CONFIGURED_VIA_ENV]"
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
+// Health check endpoint for Render / monitoring
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "ok",
+    service: "Expense Tracker Backend",
+    mode: process.env.NODE_ENV || "development",
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Vite & Static file handling
 async function startServer() {
+  const frontendDir = fs.existsSync(path.resolve(currentDir, "../frontend"))
+    ? path.resolve(currentDir, "../frontend")
+    : fs.existsSync(path.resolve(process.cwd(), "frontend"))
+    ? path.resolve(process.cwd(), "frontend")
+    : process.cwd();
+
+  const distPath = fs.existsSync(path.resolve(currentDir, "../frontend/dist"))
+    ? path.resolve(currentDir, "../frontend/dist")
+    : fs.existsSync(path.resolve(process.cwd(), "frontend/dist"))
+    ? path.resolve(process.cwd(), "frontend/dist")
+    : fs.existsSync(path.resolve(process.cwd(), "dist"))
+    ? path.resolve(process.cwd(), "dist")
+    : path.resolve(currentDir, "dist");
+
   if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
+    try {
+      const vite = await createViteServer({
+        root: frontendDir,
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } catch (viteErr: any) {
+      console.warn("Vite middleware fallback:", viteErr.message);
+      if (fs.existsSync(distPath)) {
+        app.use(express.static(distPath));
+      }
+    }
+  } else if (fs.existsSync(distPath)) {
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
+  } else {
+    // Standalone Render backend API root
+    app.get("/", (req, res) => {
+      res.json({
+        service: "Expense Tracker Backend API",
+        status: "active",
+        health: "/api/health"
+      });
+    });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
+    console.log(`Expense Tracker Backend running on port ${PORT}`);
   });
 }
 

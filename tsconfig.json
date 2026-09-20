@@ -18,16 +18,21 @@
     "jsx": "react-jsx",
     "paths": {
       "@/*": [
-        "./*"
+        "./frontend/src/*"
       ],
       "@bklitui/ui/charts": [
-        "./src/bklitui/charts.tsx"
+        "./frontend/src/bklitui/charts.tsx"
       ],
       "@bklitui/ui/*": [
-        "./src/bklitui/*"
+        "./frontend/src/bklitui/*"
       ]
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": [
+    "frontend/**/*",
+    "backend/**/*",
+    "vite.config.ts"
+  ]
 }
