@@ -1,7 +1,9 @@
 /**
  * Centralized API configuration for React components.
- * Resolves API requests to the backend (localhost or deployed Render backend).
+ * Resolves API requests to the deployed Render backend (https://expensetracker2-0-jl02.onrender.com).
  */
+
+const DEFAULT_RENDER_BACKEND_URL = "https://expensetracker2-0-jl02.onrender.com";
 
 export const getApiBaseUrl = (): string => {
   if (typeof window !== "undefined" && (window as any).BACKEND_URL) {
@@ -11,7 +13,7 @@ export const getApiBaseUrl = (): string => {
   if (envUrl) {
     return envUrl.trim().replace(/\/+$/, "");
   }
-  return "";
+  return DEFAULT_RENDER_BACKEND_URL;
 };
 
 export const getApiUrl = (endpoint: string): string => {

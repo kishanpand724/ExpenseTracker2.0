@@ -1,12 +1,10 @@
 /**
  * Centralized API & Backend Configuration for ExpenseTracker
- * Automatically adapts between:
- * - Local Development: uses localhost backend (e.g., http://localhost:3000)
- * - Production: uses deployed Render backend (configured via meta tag or VITE_BACKEND_URL)
- * - Same-origin / Monolith: uses relative paths
+ * Configured to use the Render backend: https://expensetracker2-0-jl02.onrender.com
  */
 (function () {
-  let backendUrl = "";
+  const RENDER_BACKEND_URL = "https://expensetracker2-0-jl02.onrender.com";
+  let backendUrl = RENDER_BACKEND_URL;
 
   if (typeof window !== "undefined") {
     // 1. Check window-level override
@@ -22,17 +20,6 @@
       else if (window.__ENV__ && window.__ENV__.VITE_BACKEND_URL) {
         backendUrl = window.__ENV__.VITE_BACKEND_URL.trim().replace(/\/+$/, "");
       }
-    }
-
-    // If still empty and running on external static host (e.g. Vercel without meta tag set yet)
-    // and not running on localhost/127.0.0.1 or the preview container port 3000
-    const origin = window.location.origin;
-    const isLocalhost = origin.includes("localhost") || origin.includes("127.0.0.1");
-    const isCloudPreview = origin.includes("run.app") || origin.includes(":3000");
-
-    if (!backendUrl && !isLocalhost && !isCloudPreview) {
-      // When deployed standalone on Vercel without custom backend URL,
-      // you can configure window.BACKEND_API_URL or <meta name="backend-url" content="https://your-backend.onrender.com">
     }
   }
 
