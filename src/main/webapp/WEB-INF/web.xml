@@ -5,11 +5,153 @@
                              http://xmlns.jcp.org/xml/ns/javaee/web-app_4_0.xsd"
          version="4.0">
 
-    <display-name>Personal Expense Tracker</display-name>
+    <display-name>Personal Expense Tracker - Java Servlets Architecture</display-name>
 
     <welcome-file-list>
         <welcome-file>index.html</welcome-file>
         <welcome-file>index.jsp</welcome-file>
     </welcome-file-list>
+
+    <!-- Login Servlet -->
+    <servlet>
+        <servlet-name>LoginServlet</servlet-name>
+        <servlet-class>servlet.LoginServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>LoginServlet</servlet-name>
+        <url-pattern>/LoginServlet</url-pattern>
+        <url-pattern>/login</url-pattern>
+        <url-pattern>/api/auth/login</url-pattern>
+    </servlet-mapping>
+
+    <!-- Logout Servlet -->
+    <servlet>
+        <servlet-name>LogoutServlet</servlet-name>
+        <servlet-class>servlet.LogoutServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>LogoutServlet</servlet-name>
+        <url-pattern>/LogoutServlet</url-pattern>
+        <url-pattern>/logout</url-pattern>
+        <url-pattern>/api/auth/logout</url-pattern>
+    </servlet-mapping>
+
+    <!-- Signup Servlet -->
+    <servlet>
+        <servlet-name>SignupServlet</servlet-name>
+        <servlet-class>servlet.SignupServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>SignupServlet</servlet-name>
+        <url-pattern>/SignupServlet</url-pattern>
+        <url-pattern>/signup</url-pattern>
+        <url-pattern>/api/auth/signup</url-pattern>
+    </servlet-mapping>
+
+    <!-- Auth Check Servlet -->
+    <servlet>
+        <servlet-name>AuthCheckServlet</servlet-name>
+        <servlet-class>servlet.AuthCheckServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>AuthCheckServlet</servlet-name>
+        <url-pattern>/AuthCheckServlet</url-pattern>
+        <url-pattern>/api/auth/me</url-pattern>
+        <url-pattern>/auth-check</url-pattern>
+    </servlet-mapping>
+
+    <!-- Session Check Servlet -->
+    <servlet>
+        <servlet-name>SessionCheckServlet</servlet-name>
+        <servlet-class>servlet.SessionCheckServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>SessionCheckServlet</servlet-name>
+        <url-pattern>/SessionCheckServlet</url-pattern>
+        <url-pattern>/session-check</url-pattern>
+    </servlet-mapping>
+
+    <!-- View Transactions Servlet -->
+    <servlet>
+        <servlet-name>ViewTransactionsServlet</servlet-name>
+        <servlet-class>servlet.ViewTransactionsServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>ViewTransactionsServlet</servlet-name>
+        <url-pattern>/view-transactions</url-pattern>
+    </servlet-mapping>
+
+    <!-- Add Transaction Servlet -->
+    <servlet>
+        <servlet-name>AddTransactionServlet</servlet-name>
+        <servlet-class>servlet.AddTransactionServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>AddTransactionServlet</servlet-name>
+        <url-pattern>/add-transaction</url-pattern>
+    </servlet-mapping>
+
+    <!-- Edit Transaction Servlet -->
+    <servlet>
+        <servlet-name>EditTransactionServlet</servlet-name>
+        <servlet-class>servlet.EditTransactionServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>EditTransactionServlet</servlet-name>
+        <url-pattern>/edit-transaction</url-pattern>
+    </servlet-mapping>
+
+    <!-- Delete Transaction Servlet -->
+    <servlet>
+        <servlet-name>DeleteTransactionServlet</servlet-name>
+        <servlet-class>servlet.DeleteTransactionServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>DeleteTransactionServlet</servlet-name>
+        <url-pattern>/delete-transaction</url-pattern>
+    </servlet-mapping>
+
+    <!-- Subscriptions Servlet -->
+    <servlet>
+        <servlet-name>SubscriptionsServlet</servlet-name>
+        <servlet-class>servlet.SubscriptionsServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>SubscriptionsServlet</servlet-name>
+        <url-pattern>/api/subscriptions</url-pattern>
+        <url-pattern>/api/subscriptions/update</url-pattern>
+    </servlet-mapping>
+
+    <!-- Delete Subscription Servlet -->
+    <servlet>
+        <servlet-name>DeleteSubscriptionServlet</servlet-name>
+        <servlet-class>servlet.DeleteSubscriptionServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>DeleteSubscriptionServlet</servlet-name>
+        <url-pattern>/api/subscriptions/delete</url-pattern>
+    </servlet-mapping>
+
+    <!-- Category Expenses Servlet -->
+    <servlet>
+        <servlet-name>CategoryExpensesServlet</servlet-name>
+        <servlet-class>servlet.CategoryExpensesServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>CategoryExpensesServlet</servlet-name>
+        <url-pattern>/category-expenses</url-pattern>
+        <url-pattern>/view-category-expenses</url-pattern>
+    </servlet-mapping>
+
+    <!-- Daily Trends Servlet -->
+    <servlet>
+        <servlet-name>DailyTrendsServlet</servlet-name>
+        <servlet-class>servlet.DailyTrendsServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>DailyTrendsServlet</servlet-name>
+        <url-pattern>/daily-trends</url-pattern>
+        <url-pattern>/view-daily-trends</url-pattern>
+    </servlet-mapping>
 
 </web-app>

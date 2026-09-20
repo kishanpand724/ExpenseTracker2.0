@@ -13,20 +13,31 @@ import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+import javax.servlet.http.HttpSession;
 
+/**
+ * EditTransactionServlet updates a transaction using WHERE id = ? AND user_id = ?
+ * to ensure strict per-user data protection.
+ */
 @WebServlet("/edit-transaction")
 public class EditTransactionServlet extends HttpServlet {
 
-    private void setCorsHeaders(HttpServletResponse response) {
-        response.setHeader("Access-Control-Allow-Origin", "*");
+    private void setCorsHeaders(HttpServletRequest request, HttpServletResponse response) {
+        String origin = request.getHeader("Origin");
+        if (origin != null && !origin.isEmpty()) {
+            response.setHeader("Access-Control-Allow-Origin", origin);
+            response.setHeader("Access-Control-Allow-Credentials", "true");
+        } else {
+            response.setHeader("Access-Control-Allow-Origin", "*");
+        }
         response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+        response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept");
     }
 
     @Override
     protected void doOptions(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
-        setCorsHeaders(response);
+        setCorsHeaders(request, response);
         response.setStatus(HttpServletResponse.SC_OK);
     }
 
@@ -34,8 +45,34 @@ public class EditTransactionServlet extends HttpServlet {
     protected void doPost(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
 
-        setCorsHeaders(response);
+        setCorsHeaders(request, response);
         request.setCharacterEncoding("UTF-8");
+        response.setContentType("application/json;charset=UTF-8");
+
+        HttpSession session = request.getSession(false);
+        if (session == null || session.getAttribute("user_id") == null) {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.getWriter().println("{\"error\":\"Unauthorized. Please log in to continue.\"}");
+            return;
+        }
+
+        Object userIdObj = session.getAttribute("user_id");
+        int userId = 0;
+        if (userIdObj instanceof Number) {
+            userId = ((Number) userIdObj).intValue();
+        } else {
+            try {
+                userId = Integer.parseInt(userIdObj.toString());
+            } catch (Exception e) {
+                userId = 0;
+            }
+        }
+
+        if (userId <= 0) {
+            response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            response.getWriter().println("{\"error\":\"Unauthorized. Please log in to continue.\"}");
+            return;
+        }
 
         String idParam = request.getParameter("id");
         String type = request.getParameter("type");
@@ -71,7 +108,6 @@ public class EditTransactionServlet extends HttpServlet {
 
         if (idParam == null || idParam.trim().isEmpty() || type == null || title == null || amountParam == null || category == null || transactionDate == null) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            response.setContentType("application/json;charset=UTF-8");
             response.getWriter().println("{\"error\":\"All fields including transaction ID are required for editing.\"}");
             return;
         }
@@ -83,12 +119,11 @@ public class EditTransactionServlet extends HttpServlet {
             amount = Double.parseDouble(amountParam.trim());
         } catch (NumberFormatException e) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            response.setContentType("application/json;charset=UTF-8");
             response.getWriter().println("{\"error\":\"Invalid ID or amount format.\"}");
             return;
         }
 
-        String sql = "UPDATE transactions SET type = ?, category = ?, amount = ?, title = ?, transaction_date = ? WHERE id = ?";
+        String sql = "UPDATE transactions SET type = ?, category = ?, amount = ?, title = ?, transaction_date = ? WHERE id = ? AND user_id = ?";
 
         try (
             Connection con = Db.getConnection();
@@ -100,21 +135,20 @@ public class EditTransactionServlet extends HttpServlet {
             ps.setString(4, title.trim());
             ps.setDate(5, Date.valueOf(transactionDate.trim()));
             ps.setInt(6, id);
+            ps.setInt(7, userId);
 
             int rows = ps.executeUpdate();
-            response.setContentType("application/json;charset=UTF-8");
 
             if (rows > 0) {
                 response.getWriter().println("{\"success\":true,\"message\":\"Transaction updated successfully in Supabase PostgreSQL.\"}");
             } else {
                 response.setStatus(HttpServletResponse.SC_NOT_FOUND);
-                response.getWriter().println("{\"error\":\"Transaction ID not found.\"}");
+                response.getWriter().println("{\"error\":\"Transaction ID not found or unauthorized.\"}");
             }
 
         } catch (SQLException | ClassNotFoundException e) {
             e.printStackTrace();
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-            response.setContentType("application/json;charset=UTF-8");
             response.getWriter().println("{\"error\":\"Database error: " + escapeJson(e.getMessage()) + "\"}");
         }
     }

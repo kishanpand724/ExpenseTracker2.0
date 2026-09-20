@@ -95,9 +95,15 @@ export const BklitAnalyticsChart: React.FC = () => {
         if (endDate) params.append("end_date", endDate);
       }
 
-      const response = await fetch(`/daily-trends?${params.toString()}`, {
+      const response = await fetch(`daily-trends?${params.toString()}`, {
+        credentials: "include",
         headers: { Accept: "application/json" },
       });
+
+      if (response.status === 401) {
+        window.location.href = "login.html";
+        return;
+      }
 
       if (!response.ok) {
         throw new Error(`Failed to fetch analytics trends (Status: ${response.status})`);

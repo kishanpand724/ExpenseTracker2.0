@@ -25,27 +25,50 @@ public class Db {
         // Load PostgreSQL JDBC Driver
         Class.forName("org.postgresql.Driver");
 
-        // 1. Check for full DATABASE_URL environment variable
-        String envUrl = System.getenv("DATABASE_URL");
-        if (envUrl != null && !envUrl.trim().isEmpty()) {
-            String jdbcUrl = envUrl.trim();
-            if (jdbcUrl.startsWith("postgres://")) {
-                jdbcUrl = jdbcUrl.replace("postgres://", "jdbc:postgresql://");
-            } else if (jdbcUrl.startsWith("postgresql://")) {
-                jdbcUrl = jdbcUrl.replace("postgresql://", "jdbc:postgresql://");
-            }
-            if (!jdbcUrl.contains("sslmode=")) {
-                jdbcUrl += (jdbcUrl.contains("?") ? "&" : "?") + "sslmode=require";
-            }
-            return DriverManager.getConnection(jdbcUrl);
-        }
-
-        // 2. Read individual Supabase connection configuration parameters
+        // Read configuration with priority on discrete parameters or properly parsed credentials
         String host = getEnv("SUPABASE_HOST", DEFAULT_HOST);
         String port = getEnv("SUPABASE_PORT", DEFAULT_PORT);
         String dbName = getEnv("SUPABASE_DB", DEFAULT_DB);
         String user = getEnv("SUPABASE_USER", DEFAULT_USER);
         String password = getEnv("SUPABASE_PASSWORD", "Kishan@772244");
+
+        // If DATABASE_URL is provided, safely parse host/port/user/password/db
+        String envUrl = System.getenv("DATABASE_URL");
+        if (envUrl != null && !envUrl.trim().isEmpty()) {
+            try {
+                String clean = envUrl.trim();
+                if (clean.contains("://")) {
+                    clean = clean.substring(clean.indexOf("://") + 3);
+                }
+                int atIdx = clean.lastIndexOf('@');
+                if (atIdx != -1) {
+                    String userPass = clean.substring(0, atIdx);
+                    String hostDb = clean.substring(atIdx + 1);
+                    int colonIdx = userPass.indexOf(':');
+                    if (colonIdx != -1) {
+                        user = userPass.substring(0, colonIdx);
+                        password = userPass.substring(colonIdx + 1);
+                    }
+                    int slashIdx = hostDb.indexOf('/');
+                    if (slashIdx != -1) {
+                        dbName = hostDb.substring(slashIdx + 1);
+                        if (dbName.contains("?")) {
+                            dbName = dbName.substring(0, dbName.indexOf("?"));
+                        }
+                        String hostPort = hostDb.substring(0, slashIdx);
+                        int portColon = hostPort.indexOf(':');
+                        if (portColon != -1) {
+                            host = hostPort.substring(0, portColon);
+                            port = hostPort.substring(portColon + 1);
+                        } else {
+                            host = hostPort;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("Notice: Using standard Supabase host configuration: " + e.getMessage());
+            }
+        }
 
         String jdbcUrl = String.format("jdbc:postgresql://%s:%s/%s?sslmode=require", host, port, dbName);
         return DriverManager.getConnection(jdbcUrl, user, password);

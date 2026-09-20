@@ -67,14 +67,19 @@ document.addEventListener("DOMContentLoaded", function () {
         const recentBody = document.getElementById("recent-transactions-body");
         const allBody = document.getElementById("all-transactions-body");
 
-        fetch("/view-transactions")
+        fetch("view-transactions", { credentials: "include" })
             .then(function (response) {
+                if (response.status === 401) {
+                    window.location.href = "login.html";
+                    return null;
+                }
                 if (!response.ok) {
                     throw new Error("Server returned status: " + response.status);
                 }
                 return response.json();
             })
             .then(function (transactions) {
+                if (!transactions) return;
                 if (!Array.isArray(transactions)) {
                     console.error("Invalid transaction data:", transactions);
                     return;
@@ -170,7 +175,6 @@ document.addEventListener("DOMContentLoaded", function () {
             <td>
                 <div class="table-actions">
                     <button class="btn-edit" data-id="${txId}" title="Edit transaction">Edit</button>
-                    <button class="btn-delete" data-id="${txId}" title="Remove transaction">Delete</button>
                 </div>
             </td>
         `;
@@ -180,22 +184,6 @@ document.addEventListener("DOMContentLoaded", function () {
             editBtn.addEventListener("click", function (e) {
                 e.stopPropagation();
                 editTransaction(transaction);
-            });
-        }
-
-        const deleteBtn = row.querySelector(".btn-delete");
-        if (deleteBtn) {
-            deleteBtn.addEventListener("click", function (e) {
-                e.stopPropagation();
-                const idToDelete = this.getAttribute("data-id") || transaction.id;
-                if (idToDelete === undefined || idToDelete === null || String(idToDelete).trim() === "") {
-                    alert("Cannot remove: Missing transaction ID");
-                    return;
-                }
-                const titleStr = transaction.title ? ` "${transaction.title}"` : "";
-                if (confirm(`Are you sure you want to remove this transaction${titleStr}?`)) {
-                    deleteTransaction(idToDelete);
-                }
             });
         }
 
@@ -209,7 +197,6 @@ document.addEventListener("DOMContentLoaded", function () {
     const editForm = document.getElementById("edit-transaction-form");
     const closeEditBtn = document.getElementById("close-edit-modal");
     const cancelEditBtn = document.getElementById("cancel-edit-modal");
-    const removeTxBtn = document.getElementById("remove-tx-btn");
 
     function openEditModal(transaction) {
         if (!editModal) return;
@@ -245,21 +232,6 @@ document.addEventListener("DOMContentLoaded", function () {
     if (closeEditBtn) closeEditBtn.addEventListener("click", closeEditModal);
     if (cancelEditBtn) cancelEditBtn.addEventListener("click", closeEditModal);
 
-    if (removeTxBtn) {
-        removeTxBtn.addEventListener("click", function (e) {
-            e.preventDefault();
-            const txId = document.getElementById("edit-tx-id").value;
-            if (!txId) {
-                alert("Cannot remove: Missing transaction ID");
-                return;
-            }
-            if (confirm("Are you sure you want to remove this transaction?")) {
-                closeEditModal();
-                deleteTransaction(txId);
-            }
-        });
-    }
-
     if (editModal) {
         editModal.addEventListener("click", function (e) {
             if (e.target === editModal) closeEditModal();
@@ -291,8 +263,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 transaction_date: transactionDate
             });
 
-            fetch("/edit-transaction", {
+            fetch("edit-transaction", {
                 method: "POST",
+                credentials: "include",
                 headers: {
                     "Content-Type": "application/x-www-form-urlencoded",
                     "Accept": "application/json"
@@ -331,7 +304,10 @@ document.addEventListener("DOMContentLoaded", function () {
        DELETE TRANSACTION
        ========================================== */
     function deleteTransaction(id) {
+        console.log(">>> [TRACE FRONTEND DELETE] Clicked Transaction ID:", id, "(type: " + typeof id + ")");
+
         if (id === undefined || id === null || String(id).trim() === "") {
+            console.error(">>> [TRACE FRONTEND DELETE] Aborted: Missing transaction ID");
             alert("Cannot remove: Missing transaction ID");
             return;
         }
@@ -339,33 +315,46 @@ document.addEventListener("DOMContentLoaded", function () {
         const numId = parseInt(String(id), 10);
         const targetId = isNaN(numId) ? String(id).trim() : numId;
 
-        const params = new URLSearchParams();
-        params.append("id", String(targetId));
+        const requestUrl = "/delete-transaction";
+        const requestMethod = "POST";
+        const payloadParams = new URLSearchParams();
+        payloadParams.append("id", String(targetId));
+        const payloadString = payloadParams.toString();
 
-        fetch("/delete-transaction", {
-            method: "POST",
+        console.log(">>> [TRACE FRONTEND DELETE] Sending Request:");
+        console.log("    Request URL:", requestUrl);
+        console.log("    Request Method:", requestMethod);
+        console.log("    Request Payload:", payloadString, "({ id:", targetId, "})");
+
+        fetch(requestUrl, {
+            method: requestMethod,
+            credentials: "include",
             headers: {
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Accept": "application/json",
                 "X-Requested-With": "XMLHttpRequest"
             },
-            body: params.toString()
+            body: payloadString
         })
         .then(res => {
+            console.log(">>> [TRACE FRONTEND DELETE] Backend Response Status:", res.status, res.statusText);
             if (!res.ok) {
-                return res.json().then(data => { throw new Error(data.error || ("HTTP " + res.status)); });
+                return res.json().then(data => {
+                    console.error(">>> [TRACE FRONTEND DELETE] Backend Response Error Body:", data);
+                    throw new Error(data.error || ("HTTP " + res.status));
+                });
             }
             return res.json();
         })
         .then(data => {
-            console.log("Delete transaction success:", data);
+            console.log(">>> [TRACE FRONTEND DELETE] Backend Response Body:", data);
             loadTransactions();
             window.dispatchEvent(new CustomEvent("transactionsUpdated"));
             if (typeof window.refreshAnalyticsChart === "function") window.refreshAnalyticsChart();
             if (typeof window.refreshDashboardPieChart === "function") window.refreshDashboardPieChart();
         })
         .catch(err => {
-            console.error("Error deleting transaction:", err);
+            console.error(">>> [TRACE FRONTEND DELETE] Error in deleteTransaction:", err);
             loadTransactions();
             window.dispatchEvent(new CustomEvent("transactionsUpdated"));
             if (typeof window.refreshAnalyticsChart === "function") window.refreshAnalyticsChart();
@@ -424,7 +413,7 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
 
-        fetch("/api/subscriptions")
+        fetch("api/subscriptions", { credentials: "include" })
             .then(res => res.ok ? res.json() : [])
             .then(subs => {
                 if (Array.isArray(subs)) {
@@ -784,12 +773,117 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     /* ==========================================
+       EDIT SUBSCRIPTION MODAL & LOGIC
+       ========================================== */
+    const editSubModal = document.getElementById("edit-sub-modal");
+    const editSubForm = document.getElementById("edit-subscription-form");
+    const closeEditSubBtn = document.getElementById("close-edit-sub-modal");
+    const cancelEditSubBtn = document.getElementById("cancel-edit-sub-modal");
+
+    function openEditSubModal(sub) {
+        if (!editSubModal) return;
+
+        document.getElementById("edit-sub-id").value = sub.id || "";
+        document.getElementById("edit-sub-name").value = sub.name || "";
+        document.getElementById("edit-sub-amount").value = sub.amount || "";
+
+        let cat = String(sub.category || "bills").toLowerCase().trim();
+        const catSelect = document.getElementById("edit-sub-category");
+        if (catSelect) {
+            catSelect.value = cat;
+            if (catSelect.value !== cat) catSelect.value = "others";
+        }
+
+        let cycle = sub.billingCycle || "Monthly";
+        const cycleSelect = document.getElementById("edit-sub-cycle");
+        if (cycleSelect) {
+            cycleSelect.value = cycle;
+        }
+
+        let dateVal = sub.nextBilling || new Date().toISOString().split("T")[0];
+        if (typeof dateVal === "string" && dateVal.includes("T")) {
+            dateVal = dateVal.split("T")[0];
+        }
+        document.getElementById("edit-sub-next-date").value = dateVal;
+
+        editSubModal.style.display = "flex";
+    }
+
+    function closeEditSubModal() {
+        if (editSubModal) editSubModal.style.display = "none";
+    }
+
+    if (closeEditSubBtn) closeEditSubBtn.addEventListener("click", closeEditSubModal);
+    if (cancelEditSubBtn) cancelEditSubBtn.addEventListener("click", closeEditSubModal);
+
+    if (editSubModal) {
+        editSubModal.addEventListener("click", function (e) {
+            if (e.target === editSubModal) closeEditSubModal();
+        });
+    }
+
+    if (editSubForm) {
+        editSubForm.addEventListener("submit", function (e) {
+            e.preventDefault();
+
+            const subId = document.getElementById("edit-sub-id").value;
+            const name = document.getElementById("edit-sub-name").value.trim();
+            const category = document.getElementById("edit-sub-category").value;
+            const amount = document.getElementById("edit-sub-amount").value;
+            const billingCycle = document.getElementById("edit-sub-cycle").value;
+            const nextBilling = document.getElementById("edit-sub-next-date").value;
+
+            if (!subId || !name || !amount) {
+                alert("Please fill in all required subscription details.");
+                return;
+            }
+
+            fetch("api/subscriptions/update", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    id: subId,
+                    name: name,
+                    category: category,
+                    amount: amount,
+                    billingCycle: billingCycle,
+                    nextBilling: nextBilling
+                })
+            })
+            .then(res => {
+                if (!res.ok) throw new Error("HTTP error " + res.status);
+                return res.json();
+            })
+            .then(data => {
+                closeEditSubModal();
+                loadSubscriptions();
+                loadTransactions();
+                window.dispatchEvent(new CustomEvent("transactionsUpdated"));
+                if (typeof window.refreshAnalyticsChart === "function") window.refreshAnalyticsChart();
+                if (typeof window.refreshDashboardPieChart === "function") window.refreshDashboardPieChart();
+            })
+            .catch(err => {
+                console.error("Error updating subscription:", err);
+                alert("Error updating subscription: " + err.message);
+            });
+        });
+    }
+
+    /* ==========================================
        SUBSCRIPTIONS MANAGEMENT
        ========================================== */
     function loadSubscriptions() {
-        fetch("/api/subscriptions")
-            .then(res => res.json())
+        fetch("api/subscriptions", { credentials: "include" })
+            .then(res => {
+                if (res.status === 401) {
+                    window.location.href = "login.html";
+                    return null;
+                }
+                return res.json();
+            })
             .then(subs => {
+                if (!subs) return;
                 const container = document.getElementById("subscriptions-container");
                 if (!container) return;
 
@@ -812,13 +906,18 @@ document.addEventListener("DOMContentLoaded", function () {
                                 Next Billing: ${escapeHTML(sub.nextBilling)}
                             </p>
                         </div>
-                        <div style="text-align: right; display: flex; align-items: center; gap: 1rem;">
-                            <span style="font-size: 1.15rem; font-weight: 700; color: var(--expense);">₹${Number(sub.amount).toLocaleString("en-IN")}</span>
-                            <button class="btn-delete" data-sub-id="${sub.id}">Remove</button>
+                        <div style="text-align: right; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; justify-content: flex-end;">
+                            <span style="font-size: 1.15rem; font-weight: 700; color: var(--expense); margin-right: 0.25rem;">₹${Number(sub.amount).toLocaleString("en-IN")}</span>
+                            <button class="btn-edit btn-edit-sub" data-sub-id="${sub.id}" style="padding: 0.35rem 0.75rem; font-size: 0.825rem; font-weight: 600;">Edit</button>
+                            <button class="btn-delete btn-remove-sub" data-sub-id="${sub.id}" style="padding: 0.35rem 0.75rem; font-size: 0.825rem; font-weight: 600;">Remove</button>
                         </div>
                     `;
 
-                    item.querySelector(".btn-delete").addEventListener("click", function() {
+                    item.querySelector(".btn-edit-sub").addEventListener("click", function() {
+                        openEditSubModal(sub);
+                    });
+
+                    item.querySelector(".btn-remove-sub").addEventListener("click", function() {
                         deleteSubscription(sub.id);
                     });
 
@@ -829,8 +928,9 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function deleteSubscription(id) {
-        fetch("/api/subscriptions/delete", {
+        fetch("api/subscriptions/delete", {
             method: "POST",
+            credentials: "include",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id })
         })
@@ -852,8 +952,9 @@ document.addEventListener("DOMContentLoaded", function () {
             const amount = document.getElementById("sub-amount").value;
             const nextBilling = document.getElementById("sub-next-date").value;
 
-            fetch("/api/subscriptions", {
+            fetch("api/subscriptions", {
                 method: "POST",
+                credentials: "include",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ name, category, amount, nextBilling })
             })
@@ -902,8 +1003,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
             const formData = new URLSearchParams(new FormData(form));
 
-            fetch("/add-transaction", {
+            fetch("add-transaction", {
                 method: "POST",
+                credentials: "include",
                 headers: {
                     "Content-Type": "application/x-www-form-urlencoded",
                     "Accept": "application/json"
@@ -933,8 +1035,225 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     /* ==========================================
+       AUTHENTICATION SYSTEM
+       ========================================== */
+    const authContainer = document.getElementById("auth-container");
+    const mainAppContainer = document.getElementById("main-app-container");
+    const loginCard = document.getElementById("login-card");
+    const signupCard = document.getElementById("signup-card");
+    const showSignupLink = document.getElementById("show-signup-link");
+    const showLoginLink = document.getElementById("show-login-link");
+    const forgotPasswordLink = document.getElementById("forgot-password-link");
+    const loginForm = document.getElementById("login-form");
+    const signupForm = document.getElementById("signup-form");
+    const loginAlert = document.getElementById("login-alert");
+    const signupAlert = document.getElementById("signup-alert");
+    const logoutBtn = document.getElementById("logout-btn");
+
+    function showAuthAlert(element, message, type) {
+        if (!element) return;
+        element.textContent = message;
+        element.className = `auth-alert ${type}`;
+        element.style.display = "block";
+    }
+
+    function clearAuthAlerts() {
+        if (loginAlert) {
+            loginAlert.style.display = "none";
+            loginAlert.textContent = "";
+        }
+        if (signupAlert) {
+            signupAlert.style.display = "none";
+            signupAlert.textContent = "";
+        }
+    }
+
+    function checkAuthStatus(retryCount = 0) {
+        fetch("session-check", {
+            method: "GET",
+            credentials: "include",
+            headers: {
+                "Accept": "application/json",
+                "Cache-Control": "no-cache"
+            }
+        })
+            .then(async res => {
+                if (res.status === 401) {
+                    return { authenticated: false };
+                }
+                const contentType = res.headers.get("content-type") || "";
+                if (contentType.includes("application/json")) {
+                    try {
+                        return await res.json();
+                    } catch (e) {
+                        return null;
+                    }
+                }
+                const text = await res.text();
+                try {
+                    return JSON.parse(text);
+                } catch (e) {
+                    return null;
+                }
+            })
+            .then(data => {
+                if (data && (data.authenticated === true || data.user_id || data.user)) {
+                    const user = data.user || { id: data.user_id, name: data.name || "User", email: data.email || "" };
+                    const nameElem = document.getElementById("user-display-name");
+                    const emailElem = document.getElementById("user-display-email");
+                    const avatarElem = document.getElementById("user-avatar-circle");
+
+                    if (nameElem) nameElem.textContent = user.name || "User";
+                    if (emailElem) emailElem.textContent = user.email || "";
+                    if (avatarElem && user.name) {
+                        avatarElem.textContent = user.name.charAt(0).toUpperCase();
+                    }
+
+                    if (authContainer) authContainer.style.display = "none";
+                    if (mainAppContainer) mainAppContainer.style.display = "flex";
+
+                    loadTransactions();
+                    loadSubscriptions();
+                } else if (data && data.authenticated === false) {
+                    // Explicitly confirmed unauthenticated by backend
+                    window.location.href = "login.html";
+                } else {
+                    // Response in unexpected format, retry before redirecting
+                    if (retryCount < 2) {
+                        setTimeout(() => checkAuthStatus(retryCount + 1), 500);
+                    } else {
+                        window.location.href = "login.html";
+                    }
+                }
+            })
+            .catch(err => {
+                console.warn("Session check retry or error:", err);
+                if (retryCount < 2) {
+                    setTimeout(() => checkAuthStatus(retryCount + 1), 500);
+                }
+            });
+    }
+
+    if (showSignupLink) {
+        showSignupLink.addEventListener("click", function (e) {
+            e.preventDefault();
+            window.location.href = "signup.html";
+        });
+    }
+
+    if (showLoginLink) {
+        showLoginLink.addEventListener("click", function (e) {
+            e.preventDefault();
+            window.location.href = "login.html";
+        });
+    }
+
+    if (forgotPasswordLink) {
+        forgotPasswordLink.addEventListener("click", function (e) {
+            e.preventDefault();
+            showAuthAlert(loginAlert, "Password reset functionality placeholder.", "success");
+        });
+    }
+
+    if (loginForm) {
+        loginForm.addEventListener("submit", function (e) {
+            e.preventDefault();
+            clearAuthAlerts();
+
+            const email = document.getElementById("login-email").value.trim();
+            const password = document.getElementById("login-password").value;
+
+            const submitBtn = document.getElementById("login-submit-btn");
+            if (submitBtn) submitBtn.disabled = true;
+
+            fetch("login", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+                body: "email=" + encodeURIComponent(email) + "&password=" + encodeURIComponent(password)
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (submitBtn) submitBtn.disabled = false;
+                if (!data.success) {
+                    showAuthAlert(loginAlert, data.error || "Login failed.", "error");
+                } else {
+                    window.location.href = "index.html";
+                }
+            })
+            .catch(err => {
+                if (submitBtn) submitBtn.disabled = false;
+                showAuthAlert(loginAlert, "Connection error: " + err.message, "error");
+            });
+        });
+    }
+
+    if (signupForm) {
+        signupForm.addEventListener("submit", function (e) {
+            e.preventDefault();
+            clearAuthAlerts();
+
+            const name = document.getElementById("signup-name").value.trim();
+            const email = document.getElementById("signup-email").value.trim();
+            const password = document.getElementById("signup-password").value;
+            const confirmPassword = document.getElementById("signup-confirm-password").value;
+
+            if (password !== confirmPassword) {
+                showAuthAlert(signupAlert, "Password and Confirm Password do not match.", "error");
+                return;
+            }
+
+            if (password.length < 6) {
+                showAuthAlert(signupAlert, "Password must be at least 6 characters.", "error");
+                return;
+            }
+
+            const submitBtn = document.getElementById("signup-submit-btn");
+            if (submitBtn) submitBtn.disabled = true;
+
+            fetch("signup", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+                body: "name=" + encodeURIComponent(name)
+                    + "&email=" + encodeURIComponent(email)
+                    + "&password=" + encodeURIComponent(password)
+                    + "&confirmPassword=" + encodeURIComponent(confirmPassword)
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (submitBtn) submitBtn.disabled = false;
+                if (!data.success) {
+                    showAuthAlert(signupAlert, data.error || "Account creation failed.", "error");
+                } else {
+                    window.location.href = "login.html?registered=true";
+                }
+            })
+            .catch(err => {
+                if (submitBtn) submitBtn.disabled = false;
+                showAuthAlert(signupAlert, "Connection error: " + err.message, "error");
+            });
+        });
+    }
+
+    if (logoutBtn) {
+        logoutBtn.addEventListener("click", function (e) {
+            e.preventDefault();
+            fetch("logout", { method: "POST", credentials: "include" })
+                .then(res => res.json().catch(() => ({})))
+                .then(data => {
+                    const target = (data && data.redirect) ? data.redirect : "login.html?logout=true";
+                    window.location.href = target;
+                })
+                .catch(() => {
+                    window.location.href = "login.html?logout=true";
+                });
+        });
+    }
+
+    /* ==========================================
        INITIAL LOAD
        ========================================== */
-    loadTransactions();
+    checkAuthStatus();
 
 });

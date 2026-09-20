@@ -1,10 +1,13 @@
--- PostgreSQL Schema for Personal Expense Tracker
--- Database: expense
+-- PostgreSQL Schema for Personal Expense Tracker (Java Servlets Backend)
+-- Database: postgres / expense
 
-CREATE DATABASE expense;
-
--- Connect to expense database before running the following:
--- \c expense;
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 CREATE TABLE IF NOT EXISTS transactions (
     id SERIAL PRIMARY KEY,
@@ -13,16 +16,20 @@ CREATE TABLE IF NOT EXISTS transactions (
     amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
     title VARCHAR(255) NOT NULL,
     transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    user_id INTEGER REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Index for faster queries on date
-CREATE INDEX idx_transactions_date ON transactions(transaction_date DESC);
+CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(transaction_date DESC);
 
--- Sample Data Insertion
-INSERT INTO transactions (type, category, amount, title, transaction_date) VALUES
-('income', 'salary', 50000.00, 'Monthly Salary', '2026-09-16'),
-('expense', 'food', 1200.00, 'Dinner with friends', '2026-09-17'),
-('expense', 'bills', 2500.00, 'Electricity Bill', '2026-09-15'),
-('expense', 'shopping', 4800.00, 'New Headphones', '2026-09-14'),
-('expense', 'travel', 850.00, 'Cab Fare to Office', '2026-09-13');
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    category VARCHAR(50) NOT NULL,
+    amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
+    billing_cycle VARCHAR(50) NOT NULL DEFAULT 'Monthly',
+    next_billing DATE NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'Active',
+    user_id INTEGER REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

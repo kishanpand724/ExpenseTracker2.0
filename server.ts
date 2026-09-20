@@ -1,16 +1,85 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { Pool } from "pg";
 import { PGlite } from "@electric-sql/pglite";
+import session from "express-session";
+import cookieParser from "cookie-parser";
+import bcrypt from "bcryptjs";
+
+// Helper password functions matching Java PasswordUtils (PBKDF2WithHmacSHA256) & bcrypt
+function hashPasswordPbkdf2(password: string): string {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.pbkdf2Sync(password, salt, 10000, 32, "sha256");
+  return salt.toString("base64") + ":" + hash.toString("base64");
+}
+
+function verifyPasswordHash(password: string, storedHash: string, userEmail?: string): boolean {
+  if (!password || !storedHash) return false;
+
+  // 1. Check PBKDF2 (saltBase64:hashBase64) format from Java PasswordUtils
+  if (storedHash.includes(":")) {
+    try {
+      const parts = storedHash.split(":");
+      const salt = Buffer.from(parts[0], "base64");
+      const expectedHash = Buffer.from(parts[1], "base64");
+      const actualHash = crypto.pbkdf2Sync(password, salt, 10000, expectedHash.length, "sha256");
+      if (crypto.timingSafeEqual(expectedHash, actualHash)) return true;
+    } catch (e) {}
+  }
+
+  // 2. Check Bcrypt format
+  if (storedHash.startsWith("$2a$") || storedHash.startsWith("$2b$") || storedHash.startsWith("$2y$")) {
+    try {
+      if (bcrypt.compareSync(password, storedHash)) return true;
+    } catch (e) {}
+  }
+
+  // 3. Fallback demo account check
+  if (userEmail && "demo@expensetracker.com".toLowerCase() === userEmail.toLowerCase() && "password123" === password) {
+    return true;
+  }
+
+  // 4. Plain text match fallback
+  if (password === storedHash) return true;
+
+  return false;
+}
 
 const app = express();
 const PORT = 3000;
 
-// Body parser middlewares
+// Body parser & Cookie / Session middlewares
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+app.use(cookieParser());
+app.use(
+  session({
+    name: "JSESSIONID",
+    secret: "expense_tracker_secure_session_secret_2026",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: false,
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
+  })
+);
+
+declare module "express-session" {
+  interface SessionData {
+    userId?: number;
+    user_id?: number;
+    userName?: string;
+    user_name?: string;
+    userEmail?: string;
+    user_email?: string;
+  }
+}
 
 // Initialize PGlite (Embedded PostgreSQL Engine)
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -59,9 +128,19 @@ if (currentDbUrl) {
   externalPgPool = initExternalPgPool(currentDbUrl);
 }
 
-// Function to initialize PostgreSQL tables & seeds
+// Function to initialize PostgreSQL tables, users & seeds
 async function initDatabase() {
   console.log("Initializing PostgreSQL database...");
+  const createUsersTableQuery = `
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      email VARCHAR(255) UNIQUE NOT NULL,
+      password_hash VARCHAR(255) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `;
+
   const createTransactionsQuery = `
     CREATE TABLE IF NOT EXISTS transactions (
       id SERIAL PRIMARY KEY,
@@ -69,7 +148,8 @@ async function initDatabase() {
       category VARCHAR(50) NOT NULL,
       amount NUMERIC(12, 2) NOT NULL,
       title VARCHAR(255) NOT NULL,
-      transaction_date DATE NOT NULL
+      transaction_date DATE NOT NULL,
+      user_id INTEGER
     );
   `;
 
@@ -81,85 +161,350 @@ async function initDatabase() {
       amount NUMERIC(12, 2) NOT NULL,
       billing_cycle VARCHAR(50) NOT NULL DEFAULT 'Monthly',
       next_billing DATE NOT NULL,
-      status VARCHAR(20) NOT NULL DEFAULT 'Active'
+      status VARCHAR(20) NOT NULL DEFAULT 'Active',
+      user_id INTEGER
     );
   `;
 
+  await db.query(createUsersTableQuery);
   await db.query(createTransactionsQuery);
   await db.query(createSubscriptionsQuery);
+  await db.query("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS user_id INTEGER;");
+  await db.query("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS user_id INTEGER;");
 
   if (externalPgPool) {
     try {
+      await externalPgPool.query(createUsersTableQuery);
       await externalPgPool.query(createTransactionsQuery);
       await externalPgPool.query(createSubscriptionsQuery);
+      await externalPgPool.query("ALTER TABLE transactions ADD COLUMN IF NOT EXISTS user_id INTEGER;");
+      await externalPgPool.query("ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS user_id INTEGER;");
       console.log("Connected to External PostgreSQL pool successfully!");
     } catch (e: any) {
       console.error("External PG connection error:", e.message);
     }
   }
 
-  // Seed initial data if table is empty
+  // Ensure default demo user exists
+  const defaultEmail = "demo@expensetracker.com";
+  const defaultPassHash = bcrypt.hashSync("password123", 10);
+  let defaultUserId = 1;
+
+  try {
+    const userCheck = await db.query<{ id: number }>("SELECT id FROM users WHERE LOWER(email) = LOWER($1);", [defaultEmail]);
+    if (userCheck.rows.length === 0) {
+      const insUser = await db.query<{ id: number }>(
+        "INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id;",
+        ["Demo User", defaultEmail, defaultPassHash]
+      );
+      defaultUserId = insUser.rows[0]?.id || 1;
+    } else {
+      defaultUserId = userCheck.rows[0].id;
+    }
+
+    if (externalPgPool) {
+      try {
+        const extUserCheck = await externalPgPool.query<{ id: number }>("SELECT id FROM users WHERE LOWER(email) = LOWER($1);", [defaultEmail]);
+        if (extUserCheck.rows.length === 0) {
+          await externalPgPool.query(
+            "INSERT INTO users (id, name, email, password_hash) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO NOTHING;",
+            [defaultUserId, "Demo User", defaultEmail, defaultPassHash]
+          );
+        }
+      } catch (e: any) {
+        console.error("External PG demo user setup error:", e.message);
+      }
+    }
+  } catch (err: any) {
+    console.error("Demo user initialization error:", err.message);
+  }
+
+  // Update existing unassigned transactions and subscriptions to defaultUserId
+  await db.query("UPDATE transactions SET user_id = $1 WHERE user_id IS NULL;", [defaultUserId]);
+  await db.query("UPDATE subscriptions SET user_id = $1 WHERE user_id IS NULL;", [defaultUserId]);
+  if (externalPgPool) {
+    try {
+      await externalPgPool.query("UPDATE transactions SET user_id = $1 WHERE user_id IS NULL;", [defaultUserId]);
+      await externalPgPool.query("UPDATE subscriptions SET user_id = $1 WHERE user_id IS NULL;", [defaultUserId]);
+    } catch (e) {}
+  }
+
+  // Seed initial transactions if table is completely empty
   const countRes = await db.query<{ count: string }>("SELECT COUNT(*) as count FROM transactions;");
-  if (parseInt(countRes.rows[0]?.count || "0", 10) === 0) {
+  if (parseInt(countRes.rows[0]?.count || "0", 10) === 0 && !externalPgPool) {
     console.log("Seeding initial transactions into PostgreSQL database...");
     const seeds = [
-      ["expense", "food", 1200, "Dinner with friends", "2026-09-17"],
-      ["income", "salary", 50000, "Monthly Salary", "2026-09-16"],
-      ["expense", "bills", 2500, "Electricity Bill", "2026-09-15"],
-      ["expense", "shopping", 4800, "New Headphones", "2026-09-14"],
-      ["expense", "travel", 850, "Cab Fare to Office", "2026-09-13"]
+      ["expense", "food", 1200, "Dinner with friends", "2026-09-17", defaultUserId],
+      ["income", "salary", 50000, "Monthly Salary", "2026-09-16", defaultUserId],
+      ["expense", "bills", 2500, "Electricity Bill", "2026-09-15", defaultUserId],
+      ["expense", "shopping", 4800, "New Headphones", "2026-09-14", defaultUserId],
+      ["expense", "travel", 850, "Cab Fare to Office", "2026-09-13", defaultUserId]
     ];
 
     for (const seed of seeds) {
       await db.query(
-        "INSERT INTO transactions (type, category, amount, title, transaction_date) VALUES ($1, $2, $3, $4, $5);",
+        "INSERT INTO transactions (type, category, amount, title, transaction_date, user_id) VALUES ($1, $2, $3, $4, $5, $6);",
         seed
       );
     }
   }
+
   console.log("PostgreSQL database setup complete!");
 }
 
 initDatabase().catch(err => console.error("Database initialization error:", err));
 
-const SUBSCRIPTIONS_FILE = path.join(DATA_DIR, "subscriptions.json");
-const initialSubscriptions = [
-  { id: 1, name: "Netflix Premium", category: "entertainment", amount: 649, billingCycle: "Monthly", nextBilling: "2026-10-01", status: "Active" },
-  { id: 2, name: "Spotify Individual", category: "entertainment", amount: 119, billingCycle: "Monthly", nextBilling: "2026-09-28", status: "Active" },
-  { id: 3, name: "Airtel Fiber Broadband", category: "bills", amount: 999, billingCycle: "Monthly", nextBilling: "2026-10-05", status: "Active" }
-];
+// ==========================================
+// AUTHENTICATION ENDPOINTS
+// ==========================================
 
-if (!fs.existsSync(SUBSCRIPTIONS_FILE)) {
-  fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify(initialSubscriptions, null, 2));
-}
+app.post(["/signup", "/SignupServlet", "/api/auth/signup"], async (req, res) => {
+  const { name, email, password, confirmPassword } = req.body;
 
-function getLocalSubscriptions() {
-  try {
-    const raw = fs.readFileSync(SUBSCRIPTIONS_FILE, "utf-8");
-    return JSON.parse(raw);
-  } catch (err) {
-    return initialSubscriptions;
+  if (!name || !email || !password || !confirmPassword) {
+    return res.status(400).json({ error: "All fields are required." });
   }
+
+  const cleanName = String(name).trim();
+  const cleanEmail = String(email).trim().toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  if (!emailRegex.test(cleanEmail)) {
+    return res.status(400).json({ error: "Please enter a valid email address." });
+  }
+
+  if (password.length < 6) {
+    return res.status(400).json({ error: "Password must be at least 6 characters long." });
+  }
+
+  if (password !== confirmPassword) {
+    return res.status(400).json({ error: "Password and Confirm Password do not match." });
+  }
+
+  try {
+    const checkSql = "SELECT id FROM users WHERE LOWER(email) = $1;";
+    const existing = await db.query<{ id: number }>(checkSql, [cleanEmail]);
+
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ error: "An account with this email address already exists. Please log in." });
+    }
+
+    if (externalPgPool) {
+      try {
+        const extExisting = await externalPgPool.query<{ id: number }>(checkSql, [cleanEmail]);
+        if (extExisting.rows.length > 0) {
+          return res.status(400).json({ error: "An account with this email address already exists. Please log in." });
+        }
+      } catch (e: any) {}
+    }
+
+    const passwordHash = hashPasswordPbkdf2(password);
+    const insertSql = "INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id;";
+
+    let newUserId: number;
+
+    if (externalPgPool) {
+      try {
+        const extRes = await externalPgPool.query<{ id: number }>(insertSql, [cleanName, cleanEmail, passwordHash]);
+        newUserId = extRes.rows[0]?.id || Date.now();
+        await db.query(
+          "INSERT INTO users (id, name, email, password_hash) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO NOTHING;",
+          [newUserId, cleanName, cleanEmail, passwordHash]
+        );
+      } catch (extErr: any) {
+        const localRes = await db.query<{ id: number }>(insertSql, [cleanName, cleanEmail, passwordHash]);
+        newUserId = localRes.rows[0]?.id || Date.now();
+      }
+    } else {
+      const localRes = await db.query<{ id: number }>(insertSql, [cleanName, cleanEmail, passwordHash]);
+      newUserId = localRes.rows[0]?.id || Date.now();
+    }
+
+    req.session.userId = newUserId;
+    req.session.user_id = newUserId;
+    req.session.userName = cleanName;
+    req.session.user_name = cleanName;
+    req.session.userEmail = cleanEmail;
+    req.session.user_email = cleanEmail;
+
+    req.session.save((saveErr) => {
+      if (saveErr) console.error("Session save error on signup:", saveErr);
+      return res.json({
+        success: true,
+        message: "Account registered successfully",
+        redirect: "index.html",
+        user_id: newUserId,
+        user: { id: newUserId, name: cleanName, email: cleanEmail }
+      });
+    });
+  } catch (err: any) {
+    console.error("Signup error:", err);
+    return res.status(500).json({ error: "Account creation failed: " + err.message });
+  }
+});
+
+app.get(["/login", "/LoginServlet"], (req, res) => {
+  const uid = req.session?.userId || req.session?.user_id;
+  if (uid) {
+    return res.redirect(302, "index.html");
+  }
+  return res.redirect(302, "login.html");
+});
+
+app.get(["/signup", "/SignupServlet"], (req, res) => {
+  const uid = req.session?.userId || req.session?.user_id;
+  if (uid) {
+    return res.redirect(302, "index.html");
+  }
+  return res.redirect(302, "signup.html");
+});
+
+app.post(["/login", "/LoginServlet", "/api/auth/login"], async (req, res) => {
+  const { email, password } = req.body;
+  const isAjax = req.xhr || req.headers.accept?.includes("json") || req.is("json");
+
+  if (!email || !password) {
+    if (!isAjax) {
+      return res.redirect(302, "login.html?error=" + encodeURIComponent("Email and password are required."));
+    }
+    return res.status(400).json({ error: "Email and password are required." });
+  }
+
+  const cleanEmail = String(email).trim().toLowerCase();
+
+  try {
+    const selectSql = "SELECT id, name, email, password_hash FROM users WHERE LOWER(email) = $1;";
+    let userRow: any = null;
+
+    if (externalPgPool) {
+      try {
+        const extRes = await externalPgPool.query(selectSql, [cleanEmail]);
+        if (extRes.rows.length > 0) userRow = extRes.rows[0];
+      } catch (e: any) {}
+    }
+
+    if (!userRow) {
+      const localRes = await db.query(selectSql, [cleanEmail]);
+      if (localRes.rows.length > 0) userRow = localRes.rows[0];
+    }
+
+    if (!userRow) {
+      if (!isAjax) {
+        return res.redirect(302, "login.html?error=" + encodeURIComponent("Invalid email or password."));
+      }
+      return res.status(401).json({ error: "Invalid email or password." });
+    }
+
+    const isMatch = verifyPasswordHash(password, userRow.password_hash, userRow.email);
+    if (!isMatch) {
+      if (!isAjax) {
+        return res.redirect(302, "login.html?error=" + encodeURIComponent("Invalid email or password."));
+      }
+      return res.status(401).json({ error: "Invalid email or password." });
+    }
+
+    req.session.userId = userRow.id;
+    req.session.user_id = userRow.id;
+    req.session.userName = userRow.name;
+    req.session.user_name = userRow.name;
+    req.session.userEmail = userRow.email;
+    req.session.user_email = userRow.email;
+
+    req.session.save((saveErr) => {
+      if (saveErr) console.error("Session save error on login:", saveErr);
+      if (!isAjax) {
+        return res.redirect(302, "index.html");
+      }
+      return res.json({
+        success: true,
+        message: "Login successful",
+        redirect: "index.html",
+        user_id: userRow.id,
+        user: { id: userRow.id, name: userRow.name, email: userRow.email }
+      });
+    });
+  } catch (err: any) {
+    console.error("Login error:", err);
+    if (!isAjax) {
+      return res.redirect(302, "login.html?error=" + encodeURIComponent("Login failed: " + err.message));
+    }
+    return res.status(500).json({ error: "Login failed: " + err.message });
+  }
+});
+
+const handleSessionCheck = (req: express.Request, res: express.Response) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  const uid = req.session?.userId || req.session?.user_id;
+  if (req.session && uid) {
+    return res.json({
+      authenticated: true,
+      user_id: uid,
+      user: {
+        id: uid,
+        name: req.session.userName || req.session.user_name || "User",
+        email: req.session.userEmail || req.session.user_email || ""
+      }
+    });
+  }
+  return res.json({ authenticated: false });
+};
+
+app.get(["/session-check", "/SessionCheckServlet", "/api/auth/me", "/AuthCheckServlet", "/auth-check"], handleSessionCheck);
+app.post(["/session-check", "/SessionCheckServlet", "/api/auth/me", "/AuthCheckServlet", "/auth-check"], handleSessionCheck);
+
+const handleLogout = (req: express.Request, res: express.Response) => {
+  const isAjax = req.xhr || req.headers.accept?.includes("json") || req.is("json");
+  const onDone = () => {
+    res.clearCookie("JSESSIONID");
+    res.clearCookie("connect.sid");
+    if (!isAjax) {
+      return res.redirect(302, "login.html?logout=true");
+    }
+    return res.json({ success: true, message: "Logged out successfully", redirect: "login.html?logout=true" });
+  };
+
+  if (req.session) {
+    req.session.destroy(() => {
+      onDone();
+    });
+  } else {
+    onDone();
+  }
+};
+
+app.post(["/logout", "/LogoutServlet", "/api/auth/logout"], handleLogout);
+app.get(["/logout", "/LogoutServlet", "/api/auth/logout"], handleLogout);
+
+// Helper auth middleware
+function getAuthenticatedUserId(req: express.Request, res: express.Response): number | null {
+  const uid = req.session?.userId || req.session?.user_id;
+  if (!req.session || !uid) {
+    res.status(401).json({ error: "Unauthorized. Please log in to continue." });
+    return null;
+  }
+  return uid;
 }
 
-function saveLocalSubscriptions(subs: any[]) {
-  fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify(subs, null, 2));
-}
+// ==========================================
+// PROTECTED APIS WITH USER ISOLATION
+// ==========================================
 
-// API Endpoints matching Java Servlets
-
-// 1. GET /view-transactions (SQL SELECT FROM transactions)
+// 1. GET /view-transactions
 app.get("/view-transactions", async (req, res) => {
+  const userId = getAuthenticatedUserId(req, res);
+  if (userId === null) return;
+
   res.setHeader("Content-Type", "application/json;charset=UTF-8");
 
   try {
     let resultRows: any[] = [];
+    const query = "SELECT id, type, category, amount, title, to_char(transaction_date, 'YYYY-MM-DD') as date FROM transactions WHERE user_id = $1 ORDER BY transaction_date DESC, id DESC;";
 
     if (externalPgPool) {
       try {
-        const extRes = await externalPgPool.query(
-          "SELECT id, type, category, amount, title, to_char(transaction_date, 'YYYY-MM-DD') as date FROM transactions ORDER BY transaction_date DESC, id DESC;"
-        );
+        const extRes = await externalPgPool.query(query, [userId]);
         resultRows = extRes.rows;
       } catch (e: any) {
         console.error("External PG query failed, falling back to local PG:", e.message);
@@ -174,9 +519,7 @@ app.get("/view-transactions", async (req, res) => {
         amount: string | number;
         title: string;
         date: string;
-      }>(
-        "SELECT id, type, category, amount, title, to_char(transaction_date, 'YYYY-MM-DD') as date FROM transactions ORDER BY transaction_date DESC, id DESC;"
-      );
+      }>(query, [userId]);
       resultRows = result.rows;
     }
 
@@ -196,8 +539,11 @@ app.get("/view-transactions", async (req, res) => {
   }
 });
 
-// 1b. GET /category-expenses (SQL SUM(amount) GROUP BY category with Date Range Filter)
+// 1b. GET /category-expenses
 app.get(["/category-expenses", "/view-category-expenses"], async (req, res) => {
+  const userId = getAuthenticatedUserId(req, res);
+  if (userId === null) return;
+
   res.setHeader("Content-Type", "application/json;charset=UTF-8");
 
   try {
@@ -207,7 +553,7 @@ app.get(["/category-expenses", "/view-category-expenses"], async (req, res) => {
 
     const now = new Date();
     const year = now.getFullYear();
-    const month = now.getMonth(); // 0-based
+    const month = now.getMonth();
 
     if (!startDate || !endDate || duration !== "custom") {
       if (duration === "this_month") {
@@ -246,16 +592,18 @@ app.get(["/category-expenses", "/view-category-expenses"], async (req, res) => {
         SELECT LOWER(category) as category, amount
         FROM transactions
         WHERE LOWER(type) = 'expense'
-          AND transaction_date >= $1::date
-          AND transaction_date <= $2::date
+          AND user_id = $1
+          AND transaction_date >= $2::date
+          AND transaction_date <= $3::date
         
         UNION ALL
         
         SELECT LOWER(category) as category, amount
         FROM subscriptions
         WHERE LOWER(status) = 'active'
-          AND next_billing >= $1::date
-          AND next_billing <= $2::date
+          AND user_id = $1
+          AND next_billing >= $2::date
+          AND next_billing <= $3::date
       )
       SELECT category, SUM(amount) as total_amount
       FROM combined_expenses
@@ -267,7 +615,7 @@ app.get(["/category-expenses", "/view-category-expenses"], async (req, res) => {
 
     if (externalPgPool) {
       try {
-        const extRes = await externalPgPool.query(sqlQuery, [startDate, endDate]);
+        const extRes = await externalPgPool.query(sqlQuery, [userId, startDate, endDate]);
         resultRows = extRes.rows;
       } catch (e: any) {
         console.error("External PG category expenses query error:", e.message);
@@ -275,7 +623,7 @@ app.get(["/category-expenses", "/view-category-expenses"], async (req, res) => {
     }
 
     if (resultRows.length === 0) {
-      const result = await db.query<{ category: string; total_amount: string | number }>(sqlQuery, [startDate, endDate]);
+      const result = await db.query<{ category: string; total_amount: string | number }>(sqlQuery, [userId, startDate, endDate]);
       resultRows = result.rows;
     }
 
@@ -304,8 +652,11 @@ app.get(["/category-expenses", "/view-category-expenses"], async (req, res) => {
   }
 });
 
-// 1c. GET /daily-trends (SQL SUM(amount) GROUP BY transaction_date with Date Range Filter)
+// 1c. GET /daily-trends
 app.get(["/daily-trends", "/view-daily-trends"], async (req, res) => {
+  const userId = getAuthenticatedUserId(req, res);
+  if (userId === null) return;
+
   res.setHeader("Content-Type", "application/json;charset=UTF-8");
 
   try {
@@ -315,7 +666,7 @@ app.get(["/daily-trends", "/view-daily-trends"], async (req, res) => {
 
     const now = new Date();
     const year = now.getFullYear();
-    const month = now.getMonth(); // 0-based
+    const month = now.getMonth();
 
     if (!startDate || !endDate || duration !== "custom") {
       if (duration === "this_month") {
@@ -356,8 +707,9 @@ app.get(["/daily-trends", "/view-daily-trends"], async (req, res) => {
           (CASE WHEN LOWER(type) = 'income' THEN amount ELSE 0 END) as inc,
           (CASE WHEN LOWER(type) = 'expense' THEN amount ELSE 0 END) as exp
         FROM transactions
-        WHERE transaction_date >= $1::date
-          AND transaction_date <= $2::date
+        WHERE user_id = $1
+          AND transaction_date >= $2::date
+          AND transaction_date <= $3::date
 
         UNION ALL
 
@@ -367,8 +719,9 @@ app.get(["/daily-trends", "/view-daily-trends"], async (req, res) => {
           amount as exp
         FROM subscriptions
         WHERE LOWER(status) = 'active'
-          AND next_billing >= $1::date
-          AND next_billing <= $2::date
+          AND user_id = $1
+          AND next_billing >= $2::date
+          AND next_billing <= $3::date
       )
       SELECT 
         date_str,
@@ -382,8 +735,9 @@ app.get(["/daily-trends", "/view-daily-trends"], async (req, res) => {
     const txQuery = `
       SELECT id, type, category, title, amount, TO_CHAR(transaction_date, 'YYYY-MM-DD') as date
       FROM transactions
-      WHERE transaction_date >= $1::date
-        AND transaction_date <= $2::date
+      WHERE user_id = $1
+        AND transaction_date >= $2::date
+        AND transaction_date <= $3::date
       ORDER BY transaction_date DESC, id DESC;
     `;
 
@@ -392,9 +746,9 @@ app.get(["/daily-trends", "/view-daily-trends"], async (req, res) => {
 
     if (externalPgPool) {
       try {
-        const extTrends = await externalPgPool.query(trendsQuery, [startDate, endDate]);
+        const extTrends = await externalPgPool.query(trendsQuery, [userId, startDate, endDate]);
         trendRows = extTrends.rows;
-        const extTxs = await externalPgPool.query(txQuery, [startDate, endDate]);
+        const extTxs = await externalPgPool.query(txQuery, [userId, startDate, endDate]);
         txRows = extTxs.rows;
       } catch (e: any) {
         console.error("External PG daily trends query error:", e.message);
@@ -402,9 +756,9 @@ app.get(["/daily-trends", "/view-daily-trends"], async (req, res) => {
     }
 
     if (trendRows.length === 0 && txRows.length === 0) {
-      const resTrends = await db.query(trendsQuery, [startDate, endDate]);
+      const resTrends = await db.query(trendsQuery, [userId, startDate, endDate]);
       trendRows = resTrends.rows;
-      const resTxs = await db.query(txQuery, [startDate, endDate]);
+      const resTxs = await db.query(txQuery, [userId, startDate, endDate]);
       txRows = resTxs.rows;
     }
 
@@ -445,87 +799,65 @@ app.get(["/daily-trends", "/view-daily-trends"], async (req, res) => {
   }
 });
 
-// 2. POST /add-transaction (SQL INSERT INTO transactions)
+// 2. POST /add-transaction
 app.post("/add-transaction", async (req, res) => {
+  const userId = getAuthenticatedUserId(req, res);
+  if (userId === null) return;
+
   const type = req.body.type;
   const title = req.body.title;
   const amount = req.body.amount;
   const category = req.body.category;
   const transactionDate = req.body.transaction_date || req.body.date;
 
-  console.log("========== ADD TRANSACTION TO DB ==========");
-  console.log("TYPE     = " + type);
-  console.log("TITLE    = " + title);
-  console.log("AMOUNT   = " + amount);
-  console.log("CATEGORY = " + category);
-  console.log("DATE     = " + transactionDate);
-  console.log("===========================================");
-
   if (!type || !title || !amount || !category || !transactionDate ||
       String(type).trim() === "" || String(title).trim() === "" ||
       String(amount).trim() === "" || String(category).trim() === "" ||
       String(transactionDate).trim() === "") {
-    if (req.headers["accept"]?.includes("application/json") || req.xhr) {
-      return res.status(400).json({ error: "Please fill all fields." });
-    }
-    return res.status(400).send("<h2>Please fill all fields.</h2>");
+    return res.status(400).json({ error: "Please fill all fields." });
   }
 
   const numAmount = parseFloat(amount);
 
   try {
-    const insertRes = await db.query<{ id: number }>(
-      "INSERT INTO transactions (type, category, amount, title, transaction_date) VALUES ($1, $2, $3, $4, $5) RETURNING id;",
-      [type, category, numAmount, title, transactionDate]
-    );
-
-    let insertedId = insertRes.rows[0]?.id || Date.now();
+    let insertedId: number;
+    const insertSql = "INSERT INTO transactions (type, category, amount, title, transaction_date, user_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id;";
 
     if (externalPgPool) {
       try {
-        const extInsert = await externalPgPool.query<{ id: number }>(
-          "INSERT INTO transactions (type, category, amount, title, transaction_date) VALUES ($1, $2, $3, $4, $5) RETURNING id;",
-          [type, category, numAmount, title, transactionDate]
+        const extInsert = await externalPgPool.query<{ id: number }>(insertSql, [type, category, numAmount, title, transactionDate, userId]);
+        insertedId = extInsert.rows[0]?.id || Date.now();
+        await db.query(
+          "INSERT INTO transactions (id, type, category, amount, title, transaction_date, user_id) VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (id) DO UPDATE SET type=$2, category=$3, amount=$4, title=$5, transaction_date=$6, user_id=$7;",
+          [insertedId, type, category, numAmount, title, transactionDate, userId]
         );
-        if (extInsert.rows[0]?.id) {
-          insertedId = extInsert.rows[0].id;
-        }
-        console.log("Saved transaction to External PostgreSQL DB!");
       } catch (exErr: any) {
         console.error("External PG insert error:", exErr.message);
+        const insertRes = await db.query<{ id: number }>(insertSql, [type, category, numAmount, title, transactionDate, userId]);
+        insertedId = insertRes.rows[0]?.id || Date.now();
       }
+    } else {
+      const insertRes = await db.query<{ id: number }>(insertSql, [type, category, numAmount, title, transactionDate, userId]);
+      insertedId = insertRes.rows[0]?.id || Date.now();
     }
 
-    console.log("SUCCESSFULLY INSERTED RECORD INTO POSTGRES DB WITH ID:", insertedId);
-
-    if (req.headers["accept"]?.includes("application/json") || req.xhr) {
-      return res.json({
-        success: true,
-        message: "Transaction inserted successfully into PostgreSQL database",
-        id: insertedId
-      });
-    }
-
-    return res.redirect("/index.html");
+    return res.json({
+      success: true,
+      message: "Transaction inserted successfully into PostgreSQL database",
+      id: insertedId
+    });
   } catch (err: any) {
     console.error("Database insert error:", err);
-    if (req.headers["accept"]?.includes("application/json") || req.xhr) {
-      return res.status(500).json({ error: "Failed to insert into database: " + err.message });
-    }
-    return res.status(500).send("<h2>Database Error: " + err.message + "</h2>");
+    return res.status(500).json({ error: "Failed to insert into database: " + err.message });
   }
 });
 
-// 3. POST / DELETE / GET /delete-transaction & /DeleteServlet (SQL DELETE FROM transactions WHERE id = $1)
+// 3. Delete Transaction
 app.all(["/delete-transaction", "/delete-transaction/:id", "/DeleteServlet", "/api/transactions/:id"], async (req, res) => {
-  res.setHeader("Content-Type", "application/json;charset=UTF-8");
+  const userId = getAuthenticatedUserId(req, res);
+  if (userId === null) return;
 
   const rawId = req.params?.id || req.body?.id || req.query?.id;
-
-  console.log("========== DELETE TRANSACTION DB REQUEST ==========");
-  console.log("Raw ID received = ", rawId);
-  console.log("Method = ", req.method);
-  console.log("===================================================");
 
   if (rawId === undefined || rawId === null || String(rawId).trim() === "") {
     return res.status(400).json({ error: "Transaction ID is required for deletion." });
@@ -535,20 +867,21 @@ app.all(["/delete-transaction", "/delete-transaction/:id", "/DeleteServlet", "/a
   const targetId = isNaN(numericId) ? String(rawId).trim() : numericId;
 
   try {
-    const deleteSql = "DELETE FROM transactions WHERE id = $1;";
-    
-    // Execute SQL Prepared Statement
-    const result = await db.query(deleteSql, [targetId]);
-    console.log(`Deleted ${result.rowCount || 0} rows from embedded PostgreSQL DB for ID:`, targetId);
+    const deleteSql = "DELETE FROM transactions WHERE id = $1 AND user_id = $2;";
+    let extRowsAffected = 0;
+    let localRowsAffected = 0;
 
     if (externalPgPool) {
       try {
-        const extResult = await externalPgPool.query(deleteSql, [targetId]);
-        console.log(`Deleted ${extResult.rowCount || 0} rows from external PostgreSQL DB for ID:`, targetId);
-      } catch (e: any) {
-        console.error("External PG delete error:", e.message);
-      }
+        const extResult = await externalPgPool.query(deleteSql, [targetId, userId]);
+        extRowsAffected = extResult.rowCount || 0;
+      } catch (e: any) {}
     }
+
+    try {
+      const localResult = await db.query(deleteSql, [targetId, userId]);
+      localRowsAffected = (localResult as any).affectedRows || (localResult as any).rowCount || 0;
+    } catch (e: any) {}
 
     return res.json({
       success: true,
@@ -561,8 +894,11 @@ app.all(["/delete-transaction", "/delete-transaction/:id", "/DeleteServlet", "/a
   }
 });
 
-// 3b. POST /edit-transaction, /EditServlet, /EditTransactionServlet (SQL UPDATE transactions WHERE id = $1)
+// 3b. POST /edit-transaction
 app.post(["/edit-transaction", "/EditServlet", "/EditTransactionServlet"], async (req, res) => {
+  const userId = getAuthenticatedUserId(req, res);
+  if (userId === null) return;
+
   const id = req.body.id;
   const type = req.body.type;
   const title = req.body.title;
@@ -577,17 +913,13 @@ app.post(["/edit-transaction", "/EditServlet", "/EditTransactionServlet"], async
   const numAmount = parseFloat(amount);
 
   try {
-    await db.query(
-      "UPDATE transactions SET type = $1, category = $2, amount = $3, title = $4, transaction_date = $5 WHERE id = $6;",
-      [type, category, numAmount, title, transactionDate, id]
-    );
+    const updateSql = "UPDATE transactions SET type = $1, category = $2, amount = $3, title = $4, transaction_date = $5 WHERE id = $6 AND user_id = $7;";
+    
+    await db.query(updateSql, [type, category, numAmount, title, transactionDate, id, userId]);
 
     if (externalPgPool) {
       try {
-        await externalPgPool.query(
-          "UPDATE transactions SET type = $1, category = $2, amount = $3, title = $4, transaction_date = $5 WHERE id = $6;",
-          [type, category, numAmount, title, transactionDate, id]
-        );
+        await externalPgPool.query(updateSql, [type, category, numAmount, title, transactionDate, id, userId]);
       } catch (e: any) {
         console.error("External PG edit error:", e.message);
       }
@@ -600,7 +932,120 @@ app.post(["/edit-transaction", "/EditServlet", "/EditTransactionServlet"], async
   }
 });
 
-// 4. DB Status & Config APIs
+// Subscriptions APIs
+app.get("/api/subscriptions", async (req, res) => {
+  const userId = getAuthenticatedUserId(req, res);
+  if (userId === null) return;
+
+  try {
+    const query = "SELECT id, name, category, amount, billing_cycle as \"billingCycle\", next_billing as \"nextBilling\", status FROM subscriptions WHERE user_id = $1 ORDER BY next_billing ASC, id DESC;";
+    const targetPool: any = externalPgPool || db;
+    const result = await targetPool.query(query, [userId]);
+    const rows = result.rows.map((row: any) => ({
+      ...row,
+      amount: parseFloat(row.amount),
+      nextBilling: row.nextBilling ? new Date(row.nextBilling).toISOString().split("T")[0] : ""
+    }));
+    return res.json(rows);
+  } catch (err: any) {
+    console.error("Fetch subscriptions error:", err.message);
+    return res.json([]);
+  }
+});
+
+app.post("/api/subscriptions", async (req, res) => {
+  const userId = getAuthenticatedUserId(req, res);
+  if (userId === null) return;
+
+  const { name, category, amount, billingCycle, nextBilling } = req.body;
+  if (!name || !amount) {
+    return res.status(400).json({ error: "Name and Amount are required." });
+  }
+
+  const numAmount = parseFloat(amount);
+  const cat = category || "bills";
+  const cycle = billingCycle || "Monthly";
+  const date = nextBilling || new Date().toISOString().split("T")[0];
+
+  try {
+    const insertSql = "INSERT INTO subscriptions (name, category, amount, billing_cycle, next_billing, status, user_id) VALUES ($1, $2, $3, $4, $5, $6, $7);";
+    
+    await db.query(insertSql, [name, cat, numAmount, cycle, date, "Active", userId]);
+
+    if (externalPgPool) {
+      try {
+        await externalPgPool.query(insertSql, [name, cat, numAmount, cycle, date, "Active", userId]);
+      } catch (e: any) {
+        console.error("External PG sub insert error:", e.message);
+      }
+    }
+
+    return res.json({ success: true, message: "Subscription added to Supabase PostgreSQL" });
+  } catch (err: any) {
+    console.error("Add subscription error:", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/subscriptions/delete", async (req, res) => {
+  const userId = getAuthenticatedUserId(req, res);
+  if (userId === null) return;
+
+  const { id } = req.body;
+  if (!id) {
+    return res.status(400).json({ error: "Subscription ID required." });
+  }
+
+  try {
+    const deleteSql = "DELETE FROM subscriptions WHERE id = $1 AND user_id = $2;";
+    await db.query(deleteSql, [id, userId]);
+    if (externalPgPool) {
+      try {
+        await externalPgPool.query(deleteSql, [id, userId]);
+      } catch (e: any) {}
+    }
+    return res.json({ success: true, message: "Subscription deleted from Supabase PostgreSQL" });
+  } catch (err: any) {
+    console.error("Delete subscription error:", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/subscriptions/update", async (req, res) => {
+  const userId = getAuthenticatedUserId(req, res);
+  if (userId === null) return;
+
+  const { id, name, category, amount, billingCycle, nextBilling } = req.body;
+  if (!id || !name || !amount) {
+    return res.status(400).json({ error: "Subscription ID, Name, and Amount are required." });
+  }
+
+  const numAmount = parseFloat(amount);
+  const cat = category || "bills";
+  const cycle = billingCycle || "Monthly";
+  const date = nextBilling || new Date().toISOString().split("T")[0];
+
+  try {
+    const updateSql = "UPDATE subscriptions SET name = $1, category = $2, amount = $3, billing_cycle = $4, next_billing = $5 WHERE id = $6 AND user_id = $7;";
+    
+    await db.query(updateSql, [name, cat, numAmount, cycle, date, id, userId]);
+
+    if (externalPgPool) {
+      try {
+        await externalPgPool.query(updateSql, [name, cat, numAmount, cycle, date, id, userId]);
+      } catch (e: any) {
+        console.error("External PG sub update error:", e.message);
+      }
+    }
+
+    return res.json({ success: true, message: "Subscription updated successfully" });
+  } catch (err: any) {
+    console.error("Update subscription error:", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// DB Status & Config APIs
 app.get("/api/db-status", async (req, res) => {
   try {
     const result = await db.query<{ count: string }>("SELECT COUNT(*) as count FROM transactions;");
@@ -648,29 +1093,45 @@ app.post("/api/db-config", async (req, res) => {
   }
 
   try {
-    // Test connection
     await testPool.query("SELECT 1;");
 
-    // Ensure schema exists on new pool
     await testPool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
       CREATE TABLE IF NOT EXISTS transactions (
         id SERIAL PRIMARY KEY,
         type VARCHAR(20) NOT NULL,
         category VARCHAR(50) NOT NULL,
         amount NUMERIC(12, 2) NOT NULL,
         title VARCHAR(255) NOT NULL,
-        transaction_date DATE NOT NULL
+        transaction_date DATE NOT NULL,
+        user_id INTEGER
       );
+      CREATE TABLE IF NOT EXISTS subscriptions (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        category VARCHAR(50) NOT NULL,
+        amount NUMERIC(12, 2) NOT NULL,
+        billing_cycle VARCHAR(50) NOT NULL DEFAULT 'Monthly',
+        next_billing DATE NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'Active',
+        user_id INTEGER
+      );
+      ALTER TABLE transactions ADD COLUMN IF NOT EXISTS user_id INTEGER;
+      ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS user_id INTEGER;
     `);
 
-    // Activate pool
     if (externalPgPool) {
       try { await externalPgPool.end(); } catch (e) {}
     }
     externalPgPool = testPool;
     currentDbUrl = newUrl;
 
-    // Save to file
     fs.writeFileSync(DB_CONFIG_FILE, JSON.stringify({ db_url: newUrl }, null, 2));
 
     return res.json({
@@ -684,95 +1145,43 @@ app.post("/api/db-config", async (req, res) => {
   }
 });
 
-// Subscriptions APIs
-app.get("/api/subscriptions", async (req, res) => {
-  try {
-    const targetPool: any = externalPgPool || db;
-    const result = await targetPool.query(
-      "SELECT id, name, category, amount, billing_cycle as \"billingCycle\", next_billing as \"nextBilling\", status FROM subscriptions ORDER BY next_billing ASC, id DESC;"
-    );
-    const rows = result.rows.map((row: any) => ({
-      ...row,
-      amount: parseFloat(row.amount),
-      nextBilling: row.nextBilling ? new Date(row.nextBilling).toISOString().split("T")[0] : ""
-    }));
-    return res.json(rows);
-  } catch (err: any) {
-    console.error("Fetch subscriptions error:", err.message);
-    return res.json([]);
-  }
-});
-
-app.post("/api/subscriptions", async (req, res) => {
-  const { name, category, amount, billingCycle, nextBilling } = req.body;
-  if (!name || !amount) {
-    return res.status(400).json({ error: "Name and Amount are required." });
-  }
-
-  const numAmount = parseFloat(amount);
-  const cat = category || "bills";
-  const cycle = billingCycle || "Monthly";
-  const date = nextBilling || new Date().toISOString().split("T")[0];
-
-  try {
-    await db.query(
-      "INSERT INTO subscriptions (name, category, amount, billing_cycle, next_billing, status) VALUES ($1, $2, $3, $4, $5, $6);",
-      [name, cat, numAmount, cycle, date, "Active"]
-    );
-
-    if (externalPgPool) {
-      try {
-        await externalPgPool.query(
-          "INSERT INTO subscriptions (name, category, amount, billing_cycle, next_billing, status) VALUES ($1, $2, $3, $4, $5, $6);",
-          [name, cat, numAmount, cycle, date, "Active"]
-        );
-      } catch (e: any) {
-        console.error("External PG sub insert error:", e.message);
-      }
-    }
-
-    return res.json({ success: true, message: "Subscription added to Supabase PostgreSQL" });
-  } catch (err: any) {
-    console.error("Add subscription error:", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-app.post("/api/subscriptions/delete", async (req, res) => {
-  const { id } = req.body;
-  if (!id) {
-    return res.status(400).json({ error: "Subscription ID required." });
-  }
-
-  try {
-    await db.query("DELETE FROM subscriptions WHERE id = $1;", [id]);
-    if (externalPgPool) {
-      try {
-        await externalPgPool.query("DELETE FROM subscriptions WHERE id = $1;", [id]);
-      } catch (e: any) {}
-    }
-    return res.json({ success: true, message: "Subscription deleted from Supabase PostgreSQL" });
-  } catch (err: any) {
-    console.error("Delete subscription error:", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// Java Code Inspector Endpoint for user viewing
+// Java Code Inspector Endpoint
 app.get("/api/java-code", (req, res) => {
   try {
     const dbJava = fs.readFileSync(path.join(process.cwd(), "src/main/java/database/Db.java"), "utf-8");
-    const testDbJava = fs.readFileSync(path.join(process.cwd(), "src/main/java/database/TestDB.java"), "utf-8");
+    const dbInitializer = fs.readFileSync(path.join(process.cwd(), "src/main/java/database/DatabaseInitializer.java"), "utf-8");
+    const passwordUtils = fs.readFileSync(path.join(process.cwd(), "src/main/java/util/PasswordUtils.java"), "utf-8");
+    const loginServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/LoginServlet.java"), "utf-8");
+    const signupServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/SignupServlet.java"), "utf-8");
+    const logoutServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/LogoutServlet.java"), "utf-8");
+    const authCheckServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/AuthCheckServlet.java"), "utf-8");
     const viewServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/ViewTransactionsServlet.java"), "utf-8");
     const addServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/AddTransactionServlet.java"), "utf-8");
+    const editServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/EditTransactionServlet.java"), "utf-8");
+    const deleteServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/DeleteTransactionServlet.java"), "utf-8");
+    const subscriptionsServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/SubscriptionsServlet.java"), "utf-8");
+    const deleteSubServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/DeleteSubscriptionServlet.java"), "utf-8");
+    const categoryExpensesServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/CategoryExpensesServlet.java"), "utf-8");
+    const dailyTrendsServlet = fs.readFileSync(path.join(process.cwd(), "src/main/java/servlet/DailyTrendsServlet.java"), "utf-8");
     const schemaSql = fs.readFileSync(path.join(process.cwd(), "schema.sql"), "utf-8");
     const webXml = fs.readFileSync(path.join(process.cwd(), "src/main/webapp/WEB-INF/web.xml"), "utf-8");
 
     res.json({
       dbJava,
-      testDbJava,
+      dbInitializer,
+      passwordUtils,
+      loginServlet,
+      signupServlet,
+      logoutServlet,
+      authCheckServlet,
       viewServlet,
       addServlet,
+      editServlet,
+      deleteServlet,
+      subscriptionsServlet,
+      deleteSubServlet,
+      categoryExpensesServlet,
+      dailyTrendsServlet,
       schemaSql,
       webXml,
       dbUrl: "jdbc:postgresql://db.fknwrkisdhwjbnzwnifo.supabase.co:5432/postgres?sslmode=require",

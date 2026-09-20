@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up - Personal Expense Tracker</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 1.5rem;
+            font-family: var(--font-family);
+        }
+        .auth-card {
+            background-color: #ffffff;
+            border-radius: 20px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            width: 100%;
+            max-width: 460px;
+            padding: 2.5rem 2rem;
+            animation: fadeIn 0.4s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .auth-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .auth-logo {
+            width: 54px;
+            height: 54px;
+            background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
+            border-radius: 14px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: #ffffff;
+            margin-bottom: 1rem;
+            box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.4);
+        }
+        .auth-header h1 {
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.02em;
+        }
+        .auth-header p {
+            color: var(--text-secondary);
+            font-size: 0.925rem;
+        }
+        .auth-alert {
+            display: none;
+            padding: 0.875rem 1rem;
+            border-radius: 10px;
+            font-size: 0.875rem;
+            margin-bottom: 1.5rem;
+            font-weight: 500;
+        }
+        .auth-alert.error {
+            background-color: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+        }
+        .auth-alert.success {
+            background-color: #ecfdf5;
+            color: #059669;
+            border: 1px solid #a7f3d0;
+        }
+        .form-group {
+            margin-bottom: 1.15rem;
+        }
+        .form-group label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.4rem;
+        }
+        .input-wrapper input {
+            width: 100%;
+            padding: 0.85rem 1rem;
+            border: 1.5px solid var(--border-color);
+            border-radius: 10px;
+            font-size: 0.95rem;
+            color: var(--text-primary);
+            background-color: #ffffff;
+            transition: all 0.2s ease;
+            outline: none;
+        }
+        .input-wrapper input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.12);
+        }
+        .btn-submit {
+            width: 100%;
+            padding: 0.875rem;
+            background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+            color: #ffffff;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            margin-top: 1.5rem;
+        }
+        .btn-submit:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(79, 70, 229, 0.4);
+        }
+        .btn-submit:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .auth-footer {
+            text-align: center;
+            margin-top: 1.75rem;
+            padding-top: 1.25rem;
+            border-top: 1px solid var(--border-color);
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+        .auth-footer a {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .auth-footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="auth-card">
+        <div class="auth-header">
+            <div class="auth-logo">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2" y="5" width="20" height="14" rx="2" />
+                    <line x1="2" y1="10" x2="22" y2="10" />
+                </svg>
+            </div>
+            <h1>Create Account</h1>
+            <p>Start tracking your income, expenses & subscriptions</p>
+        </div>
+
+        <div id="error-alert" class="auth-alert error"></div>
+        <div id="success-alert" class="auth-alert success"></div>
+
+        <form id="signup-form" action="signup" method="POST">
+            <div class="form-group">
+                <label for="name">Full Name</label>
+                <div class="input-wrapper">
+                    <input type="text" id="name" name="name" placeholder="John Doe" required autocomplete="name">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="email">Email Address</label>
+                <div class="input-wrapper">
+                    <input type="email" id="email" name="email" placeholder="you@example.com" required autocomplete="email">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <div class="input-wrapper">
+                    <input type="password" id="password" name="password" placeholder="Minimum 6 characters" required minlength="6" autocomplete="new-password">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="confirmPassword">Confirm Password</label>
+                <div class="input-wrapper">
+                    <input type="password" id="confirmPassword" name="confirmPassword" placeholder="Re-enter password" required minlength="6" autocomplete="new-password">
+                </div>
+            </div>
+
+            <button type="submit" id="signup-btn" class="btn-submit">
+                <span>Create Account</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                    <polyline points="12 5 19 12 12 19"></polyline>
+                </svg>
+            </button>
+        </form>
+
+        <div class="auth-footer">
+            Already have an account? <a href="login.html">Sign In</a>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const signupForm = document.getElementById("signup-form");
+            const errorAlert = document.getElementById("error-alert");
+            const successAlert = document.getElementById("success-alert");
+            const signupBtn = document.getElementById("signup-btn");
+
+            function showError(msg) {
+                errorAlert.textContent = msg;
+                errorAlert.style.display = "block";
+                successAlert.style.display = "none";
+            }
+
+            function showSuccess(msg) {
+                successAlert.textContent = msg;
+                successAlert.style.display = "block";
+                errorAlert.style.display = "none";
+            }
+
+            // Check URL parameters for errors redirected from server
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get("error")) {
+                showError(decodeURIComponent(urlParams.get("error")));
+            }
+
+            signupForm.addEventListener("submit", function (e) {
+                e.preventDefault();
+                errorAlert.style.display = "none";
+                successAlert.style.display = "none";
+
+                const name = document.getElementById("name").value.trim();
+                const email = document.getElementById("email").value.trim();
+                const password = document.getElementById("password").value;
+                const confirmPassword = document.getElementById("confirmPassword").value;
+
+                if (!name || !email || !password || !confirmPassword) {
+                    showError("All fields are required.");
+                    return;
+                }
+
+                if (password.length < 6) {
+                    showError("Password must be at least 6 characters long.");
+                    return;
+                }
+
+                if (password !== confirmPassword) {
+                    showError("Password and Confirm Password do not match.");
+                    return;
+                }
+
+                signupBtn.disabled = true;
+                signupBtn.querySelector("span").textContent = "Creating Account...";
+
+                // Submit to Java SignupServlet using relative context URL
+                fetch("signup", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                        "Accept": "application/json, text/plain, */*"
+                    },
+                    body: "name=" + encodeURIComponent(name)
+                        + "&email=" + encodeURIComponent(email)
+                        + "&password=" + encodeURIComponent(password)
+                        + "&confirmPassword=" + encodeURIComponent(confirmPassword)
+                })
+                .then(async function (response) {
+                    const status = response.status;
+                    let data = null;
+                    let rawText = "";
+                    try {
+                        rawText = await response.text();
+                        data = JSON.parse(rawText);
+                    } catch (parseErr) {
+                        // Response might be HTML error page from Tomcat (404, 405, 500)
+                    }
+                    return { ok: response.ok, status: status, data: data, rawText: rawText };
+                })
+                .then(function (res) {
+                    signupBtn.disabled = false;
+                    signupBtn.querySelector("span").textContent = "Create Account";
+
+                    if (res.ok && res.data && res.data.success) {
+                        showSuccess("Account created successfully! Redirecting to login page...");
+                        setTimeout(function () {
+                            window.location.href = "login.html?registered=true&email=" + encodeURIComponent(email);
+                        }, 900);
+                    } else if (res.data && res.data.error) {
+                        showError(res.data.error);
+                    } else if (res.status === 404) {
+                        showError("HTTP 404: SignupServlet mapping '/signup' not found on Tomcat application context.");
+                    } else if (res.status === 405) {
+                        showError("HTTP 405: Method Not Allowed. SignupServlet must implement doPost().");
+                    } else if (res.status === 500) {
+                        const preview = res.rawText ? (": " + res.rawText.replace(/<[^>]*>?/gm, ' ').substring(0, 160).trim()) : "";
+                        showError("HTTP 500 Java Server/Database Exception" + preview);
+                    } else {
+                        const preview = res.rawText ? (": " + res.rawText.replace(/<[^>]*>?/gm, ' ').substring(0, 160).trim()) : "";
+                        showError("Server returned status " + res.status + preview);
+                    }
+                })
+                .catch(function (err) {
+                    signupBtn.disabled = false;
+                    signupBtn.querySelector("span").textContent = "Create Account";
+                    showError("Connection error: " + (err.message || "Failed to fetch") + ". Verify that Tomcat/Java server is running.");
+                });
+            });
+        });
+    </script>
+</body>
+</html>
