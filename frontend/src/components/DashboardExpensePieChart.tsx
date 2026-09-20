@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { PieChart, PieSlice, PieCenter, PieChartItem } from "@bklitui/ui/charts";
+import { PieChart, PieSlice, PieCenter, PieChartItem } from "../bklitui/charts";
 import { getApiUrl, getAuthHeaders } from "../config/api";
 
 interface CategorySummary {

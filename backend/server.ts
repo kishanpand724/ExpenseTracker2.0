@@ -64,34 +64,28 @@ const PORT = 3000;
 // Reverse proxy support for production deployment (Render, Cloud Run, etc.)
 app.set("trust proxy", 1);
 
-// Allowed origins for CORS (Vercel production, preview environments, localhost)
-const ALLOWED_ORIGIN_LIST = [
-  "https://expense-tracker2-0-eight.vercel.app",
-  "https://expensetracker2-0-jl02.onrender.com",
-  "http://localhost:3000",
-  "http://localhost:5173",
-  "http://127.0.0.1:3000",
-  "http://127.0.0.1:5173"
-];
+// Allowed origin for cross-origin Vercel production frontend
+const ALLOWED_ORIGIN = "https://expense-tracker2-0-eight.vercel.app";
 
-// CORS configuration for cross-origin deployment (e.g. Vercel frontend calling Render backend)
+// CORS configuration to allow exactly: https://expense-tracker2-0-eight.vercel.app
 app.use((req, res, next) => {
   const origin = (req.headers.origin as string) || "";
 
-  const isAllowed =
-    !origin ||
-    ALLOWED_ORIGIN_LIST.includes(origin) ||
-    origin.endsWith(".vercel.app") ||
-    origin.endsWith(".onrender.com") ||
-    origin.endsWith(".run.app") ||
-    origin.includes("localhost") ||
-    origin.includes("127.0.0.1");
-
-  if (origin && isAllowed) {
+  if (origin === ALLOWED_ORIGIN) {
+    res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  } else if (
+    origin === "http://localhost:3000" ||
+    origin === "http://localhost:5173" ||
+    origin === "http://127.0.0.1:3000" ||
+    origin === "http://127.0.0.1:5173" ||
+    origin.endsWith(".run.app")
+  ) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Credentials", "true");
   } else if (!origin) {
-    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
   }
 
   res.setHeader("Vary", "Origin, Access-Control-Request-Headers, Access-Control-Request-Method");
@@ -151,8 +145,8 @@ app.use(
     cookie: {
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      secure: isProd ? true : "auto",
-      sameSite: isProd ? "none" : "lax"
+      secure: true,
+      sameSite: "none"
     }
   })
 );
@@ -160,16 +154,20 @@ app.use(
 // Dynamically ensure cookie flags match request context (cross-site HTTPS vs local HTTP)
 app.use((req, res, next) => {
   if (req.session && req.session.cookie) {
-    const origin = req.headers.origin || "";
-    const isHttps = req.secure || req.headers["x-forwarded-proto"] === "https" || isProd;
-    const isLocalhost = !origin || origin.includes("localhost") || origin.includes("127.0.0.1");
+    const origin = (req.headers.origin as string) || "";
+    const isLocalHttp =
+      !req.secure &&
+      req.headers["x-forwarded-proto"] !== "https" &&
+      (origin.includes("localhost") ||
+        origin.includes("127.0.0.1") ||
+        (!origin && (req.hostname === "localhost" || req.hostname === "127.0.0.1")));
 
-    if (isHttps && (!isLocalhost || origin.startsWith("https://"))) {
-      req.session.cookie.secure = true;
-      req.session.cookie.sameSite = "none";
-    } else {
+    if (isLocalHttp) {
       req.session.cookie.secure = false;
       req.session.cookie.sameSite = "lax";
+    } else {
+      req.session.cookie.secure = true;
+      req.session.cookie.sameSite = "none";
     }
   }
   next();
@@ -1408,7 +1406,14 @@ async function startServer() {
 
   if (process.env.NODE_ENV !== "production") {
     try {
+      const viteConfigFile = fs.existsSync(path.resolve(process.cwd(), "vite.config.ts"))
+        ? path.resolve(process.cwd(), "vite.config.ts")
+        : fs.existsSync(path.resolve(currentDir, "../vite.config.ts"))
+        ? path.resolve(currentDir, "../vite.config.ts")
+        : undefined;
+
       const vite = await createViteServer({
+        configFile: viteConfigFile,
         root: frontendDir,
         server: { middlewareMode: true },
         appType: "spa",

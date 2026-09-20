@@ -1,27 +1,14 @@
 /**
  * Centralized API configuration for React components.
  * Resolves API requests to the deployed Render backend (https://expensetracker2-0-jl02.onrender.com)
- * while preserving localhost development support.
  */
 
 const DEFAULT_RENDER_BACKEND_URL = "https://expensetracker2-0-jl02.onrender.com";
 
 export const getApiBaseUrl = (): string => {
   if (typeof window !== "undefined") {
-    if ((window as any).BACKEND_URL !== undefined && (window as any).BACKEND_URL !== null) {
+    if ((window as any).BACKEND_URL) {
       return (window as any).BACKEND_URL;
-    }
-    const hostname = window.location.hostname || "";
-    if (hostname.includes("vercel.app")) {
-      return DEFAULT_RENDER_BACKEND_URL;
-    }
-    const isLocalhost =
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname.endsWith(".run.app") ||
-      hostname.includes("ai.studio");
-    if (isLocalhost) {
-      return "";
     }
   }
   const envUrl = (import.meta as any).env?.VITE_BACKEND_URL;

@@ -260,7 +260,8 @@
                 signupBtn.querySelector("span").textContent = "Creating Account...";
 
                 // Submit to Signup endpoint with session credentials
-                const signupUrl = typeof window.getApiUrl === "function" ? window.getApiUrl("signup") : "signup";
+                const RENDER_BACKEND_URL = "https://expensetracker2-0-jl02.onrender.com";
+                const signupUrl = typeof window.getApiUrl === "function" ? window.getApiUrl("signup") : (RENDER_BACKEND_URL + "/signup");
                 const authHeaders = typeof window.getAuthHeaders === "function"
                     ? window.getAuthHeaders({
                         "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",

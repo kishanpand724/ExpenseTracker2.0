@@ -1,5 +1,5 @@
 import React from "react";
-import { LineChart, XAxis, ChartTooltip, Grid, ReferenceArea, Line } from "@bklitui/ui/charts";
+import { LineChart, XAxis, ChartTooltip, Grid, ReferenceArea, Line } from "../bklitui/charts";
 
 interface BklitChartTestProps {
   data?: Array<{ date: string; value: number }>;

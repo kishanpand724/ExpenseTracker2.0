@@ -7,7 +7,7 @@ import {
   Grid,
   ChartTooltip,
   Legend,
-} from "@bklitui/ui/charts";
+} from "../bklitui/charts";
 import { getApiUrl, getAuthHeaders } from "../config/api";
 
 interface Transaction {

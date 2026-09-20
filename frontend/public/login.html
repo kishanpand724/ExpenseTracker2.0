@@ -300,7 +300,8 @@
                 showSuccess("You have been signed out successfully.");
             } else {
                 // If user already has an active session, automatically direct to dashboard
-                const sessionCheckUrl = typeof window.getApiUrl === "function" ? window.getApiUrl("session-check") : "session-check";
+                const RENDER_BACKEND_URL = "https://expensetracker2-0-jl02.onrender.com";
+                const sessionCheckUrl = typeof window.getApiUrl === "function" ? window.getApiUrl("session-check") : (RENDER_BACKEND_URL + "/session-check");
                 const checkHeaders = typeof window.getAuthHeaders === "function"
                     ? window.getAuthHeaders({ "Accept": "application/json", "Cache-Control": "no-cache" })
                     : { "Accept": "application/json", "Cache-Control": "no-cache" };
@@ -371,7 +372,7 @@
                 loginBtn.querySelector("span").textContent = "Signing in...";
 
                 // Submit to Login endpoint with session credentials
-                const loginUrl = typeof window.getApiUrl === "function" ? window.getApiUrl("login") : "login";
+                const loginUrl = typeof window.getApiUrl === "function" ? window.getApiUrl("login") : (RENDER_BACKEND_URL + "/login");
                 const loginHeaders = typeof window.getAuthHeaders === "function"
                     ? window.getAuthHeaders({
                         "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
@@ -406,7 +407,7 @@
                         if (res.data.token && typeof window.setAuthToken === "function") {
                             window.setAuthToken(res.data.token);
                         } else if (res.data.token) {
-                            try { localStorage.setItem("expense_tracker_token", data.token); } catch (e) {}
+                            try { localStorage.setItem("expense_tracker_token", res.data.token); } catch (e) {}
                         }
                         if (res.data.user) {
                             try { localStorage.setItem("expense_tracker_user", JSON.stringify(res.data.user)); } catch (e) {}
