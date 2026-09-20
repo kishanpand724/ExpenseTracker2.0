@@ -419,7 +419,10 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
 
-        fetch(resolveApi("api/subscriptions"), { credentials: "include" })
+        fetch(resolveApi("api/subscriptions"), {
+            credentials: "include",
+            headers: getAuthHeaders({ "Accept": "application/json" })
+        })
             .then(res => res.ok ? res.json() : [])
             .then(subs => {
                 if (Array.isArray(subs)) {
@@ -1194,7 +1197,11 @@ document.addEventListener("DOMContentLoaded", function () {
             fetch(resolveApi("login"), {
                 method: "POST",
                 credentials: "include",
-                headers: getAuthHeaders({ "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }),
+                headers: getAuthHeaders({
+                    "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                    "Accept": "application/json",
+                    "X-Requested-With": "XMLHttpRequest"
+                }),
                 body: "email=" + encodeURIComponent(email) + "&password=" + encodeURIComponent(password)
             })
             .then(res => res.json())
@@ -1249,7 +1256,11 @@ document.addEventListener("DOMContentLoaded", function () {
             fetch(resolveApi("signup"), {
                 method: "POST",
                 credentials: "include",
-                headers: getAuthHeaders({ "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }),
+                headers: getAuthHeaders({
+                    "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                    "Accept": "application/json",
+                    "X-Requested-With": "XMLHttpRequest"
+                }),
                 body: "name=" + encodeURIComponent(name)
                     + "&email=" + encodeURIComponent(email)
                     + "&password=" + encodeURIComponent(password)

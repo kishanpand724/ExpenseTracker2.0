@@ -11,9 +11,15 @@ export const getApiBaseUrl = (): string => {
     if ((window as any).BACKEND_URL !== undefined && (window as any).BACKEND_URL !== null) {
       return (window as any).BACKEND_URL;
     }
+    const hostname = window.location.hostname || "";
+    if (hostname.includes("vercel.app")) {
+      return DEFAULT_RENDER_BACKEND_URL;
+    }
     const isLocalhost =
-      window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1";
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname.endsWith(".run.app") ||
+      hostname.includes("ai.studio");
     if (isLocalhost) {
       return "";
     }

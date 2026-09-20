@@ -65,7 +65,7 @@ const PORT = 3000;
 app.set("trust proxy", 1);
 
 // Allowed origins for CORS (Vercel production, preview environments, localhost)
-const ALLOWED_ORIGINS = [
+const ALLOWED_ORIGIN_LIST = [
   "https://expense-tracker2-0-eight.vercel.app",
   "https://expensetracker2-0-jl02.onrender.com",
   "http://localhost:3000",
@@ -76,21 +76,35 @@ const ALLOWED_ORIGINS = [
 
 // CORS configuration for cross-origin deployment (e.g. Vercel frontend calling Render backend)
 app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin) {
-    // Reflect origin to permit cross-origin requests with credentials
+  const origin = (req.headers.origin as string) || "";
+
+  const isAllowed =
+    !origin ||
+    ALLOWED_ORIGIN_LIST.includes(origin) ||
+    origin.endsWith(".vercel.app") ||
+    origin.endsWith(".onrender.com") ||
+    origin.endsWith(".run.app") ||
+    origin.includes("localhost") ||
+    origin.includes("127.0.0.1");
+
+  if (origin && isAllowed) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD");
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "Content-Type, Authorization, X-Requested-With, Accept, Cache-Control, Pragma, Expires, X-Session-Token"
-    );
-    res.setHeader("Access-Control-Expose-Headers", "Set-Cookie, Authorization");
+  } else if (!origin) {
+    res.setHeader("Access-Control-Allow-Origin", "*");
   }
+
+  res.setHeader("Vary", "Origin, Access-Control-Request-Headers, Access-Control-Request-Method");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, X-Requested-With, Accept, Origin, Cache-Control, Pragma, Expires, X-Session-Token, X-CSRF-Token"
+  );
+  res.setHeader("Access-Control-Expose-Headers", "Set-Cookie, Authorization, Content-Type, Content-Length");
+
   if (req.method === "OPTIONS") {
     res.setHeader("Access-Control-Max-Age", "86400");
-    return res.sendStatus(204);
+    return res.status(204).end();
   }
   next();
 });
@@ -463,7 +477,13 @@ app.get(["/signup", "/SignupServlet"], (req, res) => {
 
 app.post(["/login", "/LoginServlet", "/api/auth/login"], async (req, res) => {
   const { email, password } = req.body;
-  const isAjax = req.xhr || req.headers.accept?.includes("json") || req.is("json");
+  const isAjax =
+    Boolean(req.headers.origin) ||
+    req.xhr ||
+    req.headers.accept?.includes("json") ||
+    req.is("json") ||
+    req.headers["x-requested-with"] === "XMLHttpRequest" ||
+    Boolean(req.headers.authorization);
 
   if (!email || !password) {
     if (!isAjax) {

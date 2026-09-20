@@ -8,19 +8,27 @@
   let backendUrl = RENDER_BACKEND_URL;
 
   if (typeof window !== "undefined") {
+    const hostname = window.location.hostname || "";
+    const isVercel = hostname.includes("vercel.app");
     const isLocalhost =
-      window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1";
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname.endsWith(".run.app") ||
+      hostname.includes("ai.studio");
 
-    // 1. Check window-level override
-    if (window.BACKEND_API_URL) {
+    // 1. Vercel production/preview frontend always communicates with Render backend
+    if (isVercel) {
+      backendUrl = RENDER_BACKEND_URL;
+    }
+    // 2. Check window-level override
+    else if (window.BACKEND_API_URL) {
       backendUrl = window.BACKEND_API_URL;
     }
-    // 2. Check injected environment object
+    // 3. Check injected environment object
     else if (window.__ENV__ && window.__ENV__.VITE_BACKEND_URL) {
       backendUrl = window.__ENV__.VITE_BACKEND_URL.trim().replace(/\/+$/, "");
     }
-    // 3. Check meta tag in HTML <meta name="backend-url" content="...">
+    // 4. Check meta tag in HTML <meta name="backend-url" content="...">
     else if (document.querySelector('meta[name="backend-url"]')) {
       const metaTag = document.querySelector('meta[name="backend-url"]');
       const content = metaTag.content ? metaTag.content.trim().replace(/\/+$/, "") : "";
@@ -29,9 +37,8 @@
       }
     }
 
-    // Preserve localhost support: if running on localhost and no explicit remote backend flag is provided,
-    // use local backend (relative URL)
-    if (isLocalhost && !window.BACKEND_API_URL && !window.FORCE_REMOTE_BACKEND) {
+    // Preserve local / preview container dev server support:
+    if (!isVercel && isLocalhost && !window.BACKEND_API_URL && !window.FORCE_REMOTE_BACKEND) {
       backendUrl = "";
     }
   }
