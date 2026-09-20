@@ -18,9 +18,21 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },
+    define: {
+      'import.meta.env.VITE_BACKEND_URL': JSON.stringify(
+        process.env.VITE_BACKEND_URL || 'https://expensetracker2-0-jl02.onrender.com'
+      ),
+    },
     build: {
       outDir: path.resolve(process.cwd(), 'dist'),
       emptyOutDir: true,
+      rollupOptions: {
+        input: {
+          main: path.resolve(process.cwd(), 'frontend/index.html'),
+          login: path.resolve(process.cwd(), 'frontend/login.html'),
+          signup: path.resolve(process.cwd(), 'frontend/signup.html'),
+        },
+      },
     },
   };
 });

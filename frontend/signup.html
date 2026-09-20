@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign Up - Personal Expense Tracker</title>
     <meta name="backend-url" content="https://expensetracker2-0-jl02.onrender.com">
+    <script type="module" src="/src/config/api.ts"></script>
     <script src="apiConfig.js"></script>
     <link rel="stylesheet" href="style.css">
     <style>
@@ -260,8 +261,9 @@
                 signupBtn.querySelector("span").textContent = "Creating Account...";
 
                 // Submit to Signup endpoint with session credentials
-                const RENDER_BACKEND_URL = "https://expensetracker2-0-jl02.onrender.com";
-                const signupUrl = typeof window.getApiUrl === "function" ? window.getApiUrl("signup") : (RENDER_BACKEND_URL + "/signup");
+                const signupUrl = typeof window.getApiUrl === "function"
+                    ? window.getApiUrl("signup")
+                    : ((window.BACKEND_URL || "https://expensetracker2-0-jl02.onrender.com").replace(/\/+$/, "") + "/signup");
                 const authHeaders = typeof window.getAuthHeaders === "function"
                     ? window.getAuthHeaders({
                         "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
@@ -289,7 +291,7 @@
                         rawText = await response.text();
                         data = JSON.parse(rawText);
                     } catch (parseErr) {
-                        // Response might be HTML error page from Tomcat (404, 405, 500)
+                        // Response might be HTML error page from server (404, 405, 500)
                     }
                     return { ok: response.ok, status: status, data: data, rawText: rawText };
                 })
@@ -313,12 +315,12 @@
                     } else if (res.data && res.data.error) {
                         showError(res.data.error);
                     } else if (res.status === 404) {
-                        showError("HTTP 404: SignupServlet mapping '/signup' not found on Tomcat application context.");
+                        showError("HTTP 404: Endpoint '/signup' not found on backend server.");
                     } else if (res.status === 405) {
-                        showError("HTTP 405: Method Not Allowed. SignupServlet must implement doPost().");
+                        showError("HTTP 405: Method Not Allowed. Endpoint must accept POST.");
                     } else if (res.status === 500) {
                         const preview = res.rawText ? (": " + res.rawText.replace(/<[^>]*>?/gm, ' ').substring(0, 160).trim()) : "";
-                        showError("HTTP 500 Java Server/Database Exception" + preview);
+                        showError("Server Error (500)" + preview);
                     } else {
                         const preview = res.rawText ? (": " + res.rawText.replace(/<[^>]*>?/gm, ' ').substring(0, 160).trim()) : "";
                         showError("Server returned status " + res.status + preview);
@@ -327,7 +329,7 @@
                 .catch(function (err) {
                     signupBtn.disabled = false;
                     signupBtn.querySelector("span").textContent = "Create Account";
-                    showError("Connection error: " + (err.message || "Failed to fetch") + ". Verify that Tomcat/Java server is running.");
+                    showError("Connection error: " + (err.message || "Failed to fetch") + ". Verify that the backend server is running.");
                 });
             });
         });

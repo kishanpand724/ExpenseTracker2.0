@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Personal Expense Tracker</title>
     <meta name="backend-url" content="https://expensetracker2-0-jl02.onrender.com">
+    <script type="module" src="/src/config/api.ts"></script>
     <script src="apiConfig.js"></script>
     <link rel="stylesheet" href="style.css">
     <style>
@@ -287,7 +288,7 @@
                 }
             } catch (e) {}
 
-            // Check URL parameters for status from Java server redirects
+            // Check URL parameters for status from redirects
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get("registered") === "true") {
                 showSuccess("Account registered successfully! Please sign in with your credentials.");
@@ -300,8 +301,9 @@
                 showSuccess("You have been signed out successfully.");
             } else {
                 // If user already has an active session, automatically direct to dashboard
-                const RENDER_BACKEND_URL = "https://expensetracker2-0-jl02.onrender.com";
-                const sessionCheckUrl = typeof window.getApiUrl === "function" ? window.getApiUrl("session-check") : (RENDER_BACKEND_URL + "/session-check");
+                const sessionCheckUrl = typeof window.getApiUrl === "function"
+                    ? window.getApiUrl("session-check")
+                    : ((window.BACKEND_URL || "https://expensetracker2-0-jl02.onrender.com").replace(/\/+$/, "") + "/session-check");
                 const checkHeaders = typeof window.getAuthHeaders === "function"
                     ? window.getAuthHeaders({ "Accept": "application/json", "Cache-Control": "no-cache" })
                     : { "Accept": "application/json", "Cache-Control": "no-cache" };
@@ -372,7 +374,9 @@
                 loginBtn.querySelector("span").textContent = "Signing in...";
 
                 // Submit to Login endpoint with session credentials
-                const loginUrl = typeof window.getApiUrl === "function" ? window.getApiUrl("login") : (RENDER_BACKEND_URL + "/login");
+                const loginUrl = typeof window.getApiUrl === "function"
+                    ? window.getApiUrl("login")
+                    : ((window.BACKEND_URL || "https://expensetracker2-0-jl02.onrender.com").replace(/\/+$/, "") + "/login");
                 const loginHeaders = typeof window.getAuthHeaders === "function"
                     ? window.getAuthHeaders({
                         "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",

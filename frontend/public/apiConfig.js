@@ -7,8 +7,10 @@
   let backendUrl = RENDER_BACKEND_URL;
 
   if (typeof window !== "undefined") {
-    // 1. Check window-level override
-    if (window.BACKEND_API_URL) {
+    // 1. Check window-level override or Vite config (import.meta.env.VITE_BACKEND_URL)
+    if (window.BACKEND_URL) {
+      backendUrl = window.BACKEND_URL;
+    } else if (window.BACKEND_API_URL) {
       backendUrl = window.BACKEND_API_URL;
     }
     // 2. Check injected environment object
