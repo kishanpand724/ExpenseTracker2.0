@@ -1,5 +1,8 @@
 document.addEventListener("DOMContentLoaded", function () {
 
+    const resolveApi = (url) => (typeof window.getApiUrl === "function" ? window.getApiUrl(url) : url);
+    const getAuthHeaders = (extra) => (typeof window.getAuthHeaders === "function" ? window.getAuthHeaders(extra) : (extra || {}));
+
     /* ==========================================
        GLOBAL STATE
        ========================================== */
@@ -67,7 +70,10 @@ document.addEventListener("DOMContentLoaded", function () {
         const recentBody = document.getElementById("recent-transactions-body");
         const allBody = document.getElementById("all-transactions-body");
 
-        fetch("view-transactions", { credentials: "include" })
+        fetch(resolveApi("view-transactions"), {
+            credentials: "include",
+            headers: getAuthHeaders({ "Accept": "application/json" })
+        })
             .then(function (response) {
                 if (response.status === 401) {
                     window.location.href = "login.html";
@@ -263,13 +269,13 @@ document.addEventListener("DOMContentLoaded", function () {
                 transaction_date: transactionDate
             });
 
-            fetch("edit-transaction", {
+            fetch(resolveApi("edit-transaction"), {
                 method: "POST",
                 credentials: "include",
-                headers: {
+                headers: getAuthHeaders({
                     "Content-Type": "application/x-www-form-urlencoded",
                     "Accept": "application/json"
-                },
+                }),
                 body: params.toString()
             })
             .then(res => {
@@ -326,14 +332,14 @@ document.addEventListener("DOMContentLoaded", function () {
         console.log("    Request Method:", requestMethod);
         console.log("    Request Payload:", payloadString, "({ id:", targetId, "})");
 
-        fetch(requestUrl, {
+        fetch(resolveApi(requestUrl), {
             method: requestMethod,
             credentials: "include",
-            headers: {
+            headers: getAuthHeaders({
                 "Content-Type": "application/x-www-form-urlencoded",
                 "Accept": "application/json",
                 "X-Requested-With": "XMLHttpRequest"
-            },
+            }),
             body: payloadString
         })
         .then(res => {
@@ -413,7 +419,7 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         });
 
-        fetch("api/subscriptions", { credentials: "include" })
+        fetch(resolveApi("api/subscriptions"), { credentials: "include" })
             .then(res => res.ok ? res.json() : [])
             .then(subs => {
                 if (Array.isArray(subs)) {
@@ -838,10 +844,10 @@ document.addEventListener("DOMContentLoaded", function () {
                 return;
             }
 
-            fetch("api/subscriptions/update", {
+            fetch(resolveApi("api/subscriptions/update"), {
                 method: "POST",
                 credentials: "include",
-                headers: { "Content-Type": "application/json" },
+                headers: getAuthHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({
                     id: subId,
                     name: name,
@@ -874,7 +880,10 @@ document.addEventListener("DOMContentLoaded", function () {
        SUBSCRIPTIONS MANAGEMENT
        ========================================== */
     function loadSubscriptions() {
-        fetch("api/subscriptions", { credentials: "include" })
+        fetch(resolveApi("api/subscriptions"), {
+            credentials: "include",
+            headers: getAuthHeaders({ "Accept": "application/json" })
+        })
             .then(res => {
                 if (res.status === 401) {
                     window.location.href = "login.html";
@@ -928,10 +937,10 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function deleteSubscription(id) {
-        fetch("api/subscriptions/delete", {
+        fetch(resolveApi("api/subscriptions/delete"), {
             method: "POST",
             credentials: "include",
-            headers: { "Content-Type": "application/json" },
+            headers: getAuthHeaders({ "Content-Type": "application/json" }),
             body: JSON.stringify({ id })
         })
         .then(() => {
@@ -952,10 +961,10 @@ document.addEventListener("DOMContentLoaded", function () {
             const amount = document.getElementById("sub-amount").value;
             const nextBilling = document.getElementById("sub-next-date").value;
 
-            fetch("api/subscriptions", {
+            fetch(resolveApi("api/subscriptions"), {
                 method: "POST",
                 credentials: "include",
-                headers: { "Content-Type": "application/json" },
+                headers: getAuthHeaders({ "Content-Type": "application/json" }),
                 body: JSON.stringify({ name, category, amount, nextBilling })
             })
             .then(res => res.json())
@@ -1003,13 +1012,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
             const formData = new URLSearchParams(new FormData(form));
 
-            fetch("add-transaction", {
+            fetch(resolveApi("add-transaction"), {
                 method: "POST",
                 credentials: "include",
-                headers: {
+                headers: getAuthHeaders({
                     "Content-Type": "application/x-www-form-urlencoded",
                     "Accept": "application/json"
-                },
+                }),
                 body: formData.toString()
             })
             .then(res => {
@@ -1069,13 +1078,13 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function checkAuthStatus(retryCount = 0) {
-        fetch("session-check", {
+        fetch(resolveApi("session-check"), {
             method: "GET",
             credentials: "include",
-            headers: {
+            headers: getAuthHeaders({
                 "Accept": "application/json",
                 "Cache-Control": "no-cache"
-            }
+            })
         })
             .then(async res => {
                 if (res.status === 401) {
@@ -1098,7 +1107,15 @@ document.addEventListener("DOMContentLoaded", function () {
             })
             .then(data => {
                 if (data && (data.authenticated === true || data.user_id || data.user)) {
+                    if (data.token) {
+                        if (typeof window.setAuthToken === "function") {
+                            window.setAuthToken(data.token);
+                        } else {
+                            try { localStorage.setItem("expense_tracker_token", data.token); } catch (e) {}
+                        }
+                    }
                     const user = data.user || { id: data.user_id, name: data.name || "User", email: data.email || "" };
+                    try { localStorage.setItem("expense_tracker_user", JSON.stringify(user)); } catch (e) {}
                     const nameElem = document.getElementById("user-display-name");
                     const emailElem = document.getElementById("user-display-email");
                     const avatarElem = document.getElementById("user-avatar-circle");
@@ -1116,6 +1133,14 @@ document.addEventListener("DOMContentLoaded", function () {
                     loadSubscriptions();
                 } else if (data && data.authenticated === false) {
                     // Explicitly confirmed unauthenticated by backend
+                    if (typeof window.clearAuthToken === "function") {
+                        window.clearAuthToken();
+                    } else {
+                        try {
+                            localStorage.removeItem("expense_tracker_token");
+                            localStorage.removeItem("expense_tracker_user");
+                        } catch (e) {}
+                    }
                     window.location.href = "login.html";
                 } else {
                     // Response in unexpected format, retry before redirecting
@@ -1166,10 +1191,10 @@ document.addEventListener("DOMContentLoaded", function () {
             const submitBtn = document.getElementById("login-submit-btn");
             if (submitBtn) submitBtn.disabled = true;
 
-            fetch("login", {
+            fetch(resolveApi("login"), {
                 method: "POST",
                 credentials: "include",
-                headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+                headers: getAuthHeaders({ "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }),
                 body: "email=" + encodeURIComponent(email) + "&password=" + encodeURIComponent(password)
             })
             .then(res => res.json())
@@ -1178,6 +1203,16 @@ document.addEventListener("DOMContentLoaded", function () {
                 if (!data.success) {
                     showAuthAlert(loginAlert, data.error || "Login failed.", "error");
                 } else {
+                    if (data.token) {
+                        if (typeof window.setAuthToken === "function") {
+                            window.setAuthToken(data.token);
+                        } else {
+                            try { localStorage.setItem("expense_tracker_token", data.token); } catch (e) {}
+                        }
+                    }
+                    if (data.user) {
+                        try { localStorage.setItem("expense_tracker_user", JSON.stringify(data.user)); } catch (e) {}
+                    }
                     window.location.href = "index.html";
                 }
             })
@@ -1211,10 +1246,10 @@ document.addEventListener("DOMContentLoaded", function () {
             const submitBtn = document.getElementById("signup-submit-btn");
             if (submitBtn) submitBtn.disabled = true;
 
-            fetch("signup", {
+            fetch(resolveApi("signup"), {
                 method: "POST",
                 credentials: "include",
-                headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+                headers: getAuthHeaders({ "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" }),
                 body: "name=" + encodeURIComponent(name)
                     + "&email=" + encodeURIComponent(email)
                     + "&password=" + encodeURIComponent(password)
@@ -1226,6 +1261,16 @@ document.addEventListener("DOMContentLoaded", function () {
                 if (!data.success) {
                     showAuthAlert(signupAlert, data.error || "Account creation failed.", "error");
                 } else {
+                    if (data.token) {
+                        if (typeof window.setAuthToken === "function") {
+                            window.setAuthToken(data.token);
+                        } else {
+                            try { localStorage.setItem("expense_tracker_token", data.token); } catch (e) {}
+                        }
+                    }
+                    if (data.user) {
+                        try { localStorage.setItem("expense_tracker_user", JSON.stringify(data.user)); } catch (e) {}
+                    }
                     window.location.href = "login.html?registered=true";
                 }
             })
@@ -1239,7 +1284,15 @@ document.addEventListener("DOMContentLoaded", function () {
     if (logoutBtn) {
         logoutBtn.addEventListener("click", function (e) {
             e.preventDefault();
-            fetch("logout", { method: "POST", credentials: "include" })
+            if (typeof window.clearAuthToken === "function") {
+                window.clearAuthToken();
+            } else {
+                try {
+                    localStorage.removeItem("expense_tracker_token");
+                    localStorage.removeItem("expense_tracker_user");
+                } catch (e) {}
+            }
+            fetch(resolveApi("logout"), { method: "POST", credentials: "include", headers: getAuthHeaders() })
                 .then(res => res.json().catch(() => ({})))
                 .then(data => {
                     const target = (data && data.redirect) ? data.redirect : "login.html?logout=true";

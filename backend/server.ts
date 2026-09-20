@@ -64,16 +64,32 @@ const PORT = 3000;
 // Reverse proxy support for production deployment (Render, Cloud Run, etc.)
 app.set("trust proxy", 1);
 
+// Allowed origins for CORS (Vercel production, preview environments, localhost)
+const ALLOWED_ORIGINS = [
+  "https://expense-tracker2-0-eight.vercel.app",
+  "https://expensetracker2-0-jl02.onrender.com",
+  "http://localhost:3000",
+  "http://localhost:5173",
+  "http://127.0.0.1:3000",
+  "http://127.0.0.1:5173"
+];
+
 // CORS configuration for cross-origin deployment (e.g. Vercel frontend calling Render backend)
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin) {
+    // Reflect origin to permit cross-origin requests with credentials
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, X-Requested-With, Accept, Cache-Control, Pragma, Expires, X-Session-Token"
+    );
+    res.setHeader("Access-Control-Expose-Headers", "Set-Cookie, Authorization");
   }
   if (req.method === "OPTIONS") {
+    res.setHeader("Access-Control-Max-Age", "86400");
     return res.sendStatus(204);
   }
   next();
@@ -85,22 +101,65 @@ app.use(express.json());
 app.use(cookieParser());
 
 const isProd = process.env.NODE_ENV === "production";
-const isCrossOrigin = process.env.CROSS_ORIGIN === "true" || !!process.env.FRONTEND_URL;
+const SESSION_SECRET = process.env.SESSION_SECRET || "expense_tracker_secure_session_secret_2026";
+
+// Auth token signing & verification helpers (provides fallback for third-party cookie restrictions)
+function createAuthToken(userId: number, email: string, name: string): string {
+  const payload = JSON.stringify({ userId, email, name, exp: Date.now() + 24 * 60 * 60 * 1000 });
+  const b64Payload = Buffer.from(payload).toString("base64url");
+  const signature = crypto.createHmac("sha256", SESSION_SECRET).update(b64Payload).digest("base64url");
+  return `${b64Payload}.${signature}`;
+}
+
+function verifyAuthToken(token: string): { userId: number; email: string; name: string } | null {
+  if (!token || typeof token !== "string") return null;
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [b64Payload, signature] = parts;
+  const expectedSignature = crypto.createHmac("sha256", SESSION_SECRET).update(b64Payload).digest("base64url");
+  if (signature !== expectedSignature) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(b64Payload, "base64url").toString("utf8"));
+    if (payload.exp && Date.now() > payload.exp) return null;
+    return payload;
+  } catch (e) {
+    return null;
+  }
+}
 
 app.use(
   session({
     name: "JSESSIONID",
-    secret: process.env.SESSION_SECRET || "expense_tracker_secure_session_secret_2026",
+    secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
+    proxy: true,
     cookie: {
-      secure: isProd && isCrossOrigin,
       httpOnly: true,
-      sameSite: isCrossOrigin ? "none" : "lax",
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      secure: isProd ? true : "auto",
+      sameSite: isProd ? "none" : "lax"
     }
   })
 );
+
+// Dynamically ensure cookie flags match request context (cross-site HTTPS vs local HTTP)
+app.use((req, res, next) => {
+  if (req.session && req.session.cookie) {
+    const origin = req.headers.origin || "";
+    const isHttps = req.secure || req.headers["x-forwarded-proto"] === "https" || isProd;
+    const isLocalhost = !origin || origin.includes("localhost") || origin.includes("127.0.0.1");
+
+    if (isHttps && (!isLocalhost || origin.startsWith("https://"))) {
+      req.session.cookie.secure = true;
+      req.session.cookie.sameSite = "none";
+    } else {
+      req.session.cookie.secure = false;
+      req.session.cookie.sameSite = "lax";
+    }
+  }
+  next();
+});
 
 declare module "express-session" {
   interface SessionData {
@@ -367,6 +426,8 @@ app.post(["/signup", "/SignupServlet", "/api/auth/signup"], async (req, res) => 
     req.session.userEmail = cleanEmail;
     req.session.user_email = cleanEmail;
 
+    const authToken = createAuthToken(newUserId, cleanEmail, cleanName);
+
     req.session.save((saveErr) => {
       if (saveErr) console.error("Session save error on signup:", saveErr);
       return res.json({
@@ -374,6 +435,7 @@ app.post(["/signup", "/SignupServlet", "/api/auth/signup"], async (req, res) => 
         message: "Account registered successfully",
         redirect: "index.html",
         user_id: newUserId,
+        token: authToken,
         user: { id: newUserId, name: cleanName, email: cleanEmail }
       });
     });
@@ -450,6 +512,8 @@ app.post(["/login", "/LoginServlet", "/api/auth/login"], async (req, res) => {
     req.session.userEmail = userRow.email;
     req.session.user_email = userRow.email;
 
+    const authToken = createAuthToken(userRow.id, userRow.email, userRow.name);
+
     req.session.save((saveErr) => {
       if (saveErr) console.error("Session save error on login:", saveErr);
       if (!isAjax) {
@@ -460,6 +524,7 @@ app.post(["/login", "/LoginServlet", "/api/auth/login"], async (req, res) => {
         message: "Login successful",
         redirect: "index.html",
         user_id: userRow.id,
+        token: authToken,
         user: { id: userRow.id, name: userRow.name, email: userRow.email }
       });
     });
@@ -476,15 +541,41 @@ const handleSessionCheck = (req: express.Request, res: express.Response) => {
   res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
-  const uid = req.session?.userId || req.session?.user_id;
-  if (req.session && uid) {
+
+  let uid = req.session?.userId || req.session?.user_id;
+  let userName = req.session?.userName || req.session?.user_name;
+  let userEmail = req.session?.userEmail || req.session?.user_email;
+
+  // Fallback to Bearer token if session cookie was omitted by browser third-party cookie restrictions
+  if (!uid) {
+    const authHeader = req.headers.authorization || (req.headers["x-session-token"] as string);
+    if (authHeader) {
+      const tokenStr = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : authHeader;
+      const verified = verifyAuthToken(tokenStr);
+      if (verified && verified.userId) {
+        uid = verified.userId;
+        userName = verified.name;
+        userEmail = verified.email;
+        if (req.session) {
+          req.session.userId = verified.userId;
+          req.session.user_id = verified.userId;
+          req.session.userName = verified.name;
+          req.session.userEmail = verified.email;
+        }
+      }
+    }
+  }
+
+  if (uid) {
+    const token = createAuthToken(uid, userEmail || "", userName || "User");
     return res.json({
       authenticated: true,
       user_id: uid,
+      token: token,
       user: {
         id: uid,
-        name: req.session.userName || req.session.user_name || "User",
-        email: req.session.userEmail || req.session.user_email || ""
+        name: userName || "User",
+        email: userEmail || ""
       }
     });
   }
@@ -496,9 +587,15 @@ app.post(["/session-check", "/SessionCheckServlet", "/api/auth/me", "/AuthCheckS
 
 const handleLogout = (req: express.Request, res: express.Response) => {
   const isAjax = req.xhr || req.headers.accept?.includes("json") || req.is("json");
+  const cookieOptions = {
+    httpOnly: true,
+    secure: isProd ? true : "auto" as any,
+    sameSite: isProd ? "none" as any : "lax" as any
+  };
+
   const onDone = () => {
-    res.clearCookie("JSESSIONID");
-    res.clearCookie("connect.sid");
+    res.clearCookie("JSESSIONID", cookieOptions);
+    res.clearCookie("connect.sid", cookieOptions);
     if (!isAjax) {
       return res.redirect(302, "login.html?logout=true");
     }
@@ -517,10 +614,28 @@ const handleLogout = (req: express.Request, res: express.Response) => {
 app.post(["/logout", "/LogoutServlet", "/api/auth/logout"], handleLogout);
 app.get(["/logout", "/LogoutServlet", "/api/auth/logout"], handleLogout);
 
-// Helper auth middleware
+// Helper auth middleware supporting both express-session and Authorization token fallback
 function getAuthenticatedUserId(req: express.Request, res: express.Response): number | null {
-  const uid = req.session?.userId || req.session?.user_id;
-  if (!req.session || !uid) {
+  let uid = req.session?.userId || req.session?.user_id;
+
+  if (!uid) {
+    const authHeader = req.headers.authorization || (req.headers["x-session-token"] as string);
+    if (authHeader) {
+      const tokenStr = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : authHeader;
+      const verified = verifyAuthToken(tokenStr);
+      if (verified && verified.userId) {
+        uid = verified.userId;
+        if (req.session) {
+          req.session.userId = verified.userId;
+          req.session.user_id = verified.userId;
+          req.session.userName = verified.name;
+          req.session.userEmail = verified.email;
+        }
+      }
+    }
+  }
+
+  if (!uid) {
     res.status(401).json({ error: "Unauthorized. Please log in to continue." });
     return null;
   }

@@ -261,12 +261,20 @@
 
                 // Submit to Signup endpoint with session credentials
                 const signupUrl = typeof window.getApiUrl === "function" ? window.getApiUrl("signup") : "signup";
-                fetch(signupUrl, {
-                    method: "POST",
-                    headers: {
+                const authHeaders = typeof window.getAuthHeaders === "function"
+                    ? window.getAuthHeaders({
                         "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
                         "Accept": "application/json, text/plain, */*"
-                    },
+                      })
+                    : {
+                        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                        "Accept": "application/json, text/plain, */*"
+                      };
+
+                fetch(signupUrl, {
+                    method: "POST",
+                    credentials: "include",
+                    headers: authHeaders,
                     body: "name=" + encodeURIComponent(name)
                         + "&email=" + encodeURIComponent(email)
                         + "&password=" + encodeURIComponent(password)
@@ -289,6 +297,14 @@
                     signupBtn.querySelector("span").textContent = "Create Account";
 
                     if (res.ok && res.data && res.data.success) {
+                        if (res.data.token && typeof window.setAuthToken === "function") {
+                            window.setAuthToken(res.data.token);
+                        } else if (res.data.token) {
+                            try { localStorage.setItem("expense_tracker_token", res.data.token); } catch(e){}
+                        }
+                        if (res.data.user) {
+                            try { localStorage.setItem("expense_tracker_user", JSON.stringify(res.data.user)); } catch(e){}
+                        }
                         showSuccess("Account created successfully! Redirecting to login page...");
                         setTimeout(function () {
                             window.location.href = "login.html?registered=true&email=" + encodeURIComponent(email);

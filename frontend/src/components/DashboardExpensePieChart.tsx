@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { PieChart, PieSlice, PieCenter, PieChartItem } from "@bklitui/ui/charts";
-import { getApiUrl } from "../config/api";
+import { getApiUrl, getAuthHeaders } from "../config/api";
 
 interface CategorySummary {
   category: string;
@@ -54,7 +54,7 @@ export const DashboardExpensePieChart: React.FC = () => {
 
       const response = await fetch(getApiUrl(`category-expenses?${params.toString()}`), {
         credentials: "include",
-        headers: { Accept: "application/json" },
+        headers: getAuthHeaders({ Accept: "application/json" }),
       });
 
       if (response.status === 401) {

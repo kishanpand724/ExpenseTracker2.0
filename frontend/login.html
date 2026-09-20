@@ -301,14 +301,23 @@
             } else {
                 // If user already has an active session, automatically direct to dashboard
                 const sessionCheckUrl = typeof window.getApiUrl === "function" ? window.getApiUrl("session-check") : "session-check";
+                const checkHeaders = typeof window.getAuthHeaders === "function"
+                    ? window.getAuthHeaders({ "Accept": "application/json", "Cache-Control": "no-cache" })
+                    : { "Accept": "application/json", "Cache-Control": "no-cache" };
+
                 fetch(sessionCheckUrl, {
                     method: "GET",
                     credentials: "include",
-                    headers: { "Accept": "application/json", "Cache-Control": "no-cache" }
+                    headers: checkHeaders
                 })
                 .then(r => r.ok ? r.json() : null)
                 .then(data => {
                     if (data && (data.authenticated === true || data.user_id)) {
+                        if (data.token && typeof window.setAuthToken === "function") {
+                            window.setAuthToken(data.token);
+                        } else if (data.token) {
+                            try { localStorage.setItem("expense_tracker_token", data.token); } catch (e) {}
+                        }
                         window.location.href = "index.html";
                     }
                 })
@@ -363,13 +372,20 @@
 
                 // Submit to Login endpoint with session credentials
                 const loginUrl = typeof window.getApiUrl === "function" ? window.getApiUrl("login") : "login";
+                const loginHeaders = typeof window.getAuthHeaders === "function"
+                    ? window.getAuthHeaders({
+                        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                        "Accept": "application/json, text/plain, */*"
+                      })
+                    : {
+                        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                        "Accept": "application/json, text/plain, */*"
+                      };
+
                 fetch(loginUrl, {
                     method: "POST",
                     credentials: "include",
-                    headers: {
-                        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-                        "Accept": "application/json, text/plain, */*"
-                    },
+                    headers: loginHeaders,
                     body: "email=" + encodeURIComponent(email) + "&password=" + encodeURIComponent(password)
                 })
                 .then(async function (response) {
@@ -387,6 +403,14 @@
                     loginBtn.querySelector("span").textContent = "Sign In";
 
                     if (res.ok && res.data && res.data.success) {
+                        if (res.data.token && typeof window.setAuthToken === "function") {
+                            window.setAuthToken(res.data.token);
+                        } else if (res.data.token) {
+                            try { localStorage.setItem("expense_tracker_token", res.data.token); } catch (e) {}
+                        }
+                        if (res.data.user) {
+                            try { localStorage.setItem("expense_tracker_user", JSON.stringify(res.data.user)); } catch (e) {}
+                        }
                         showSuccess("Login successful! Redirecting to dashboard...");
                         const targetUrl = (res.data && res.data.redirect) ? res.data.redirect : "index.html";
                         setTimeout(function () {
