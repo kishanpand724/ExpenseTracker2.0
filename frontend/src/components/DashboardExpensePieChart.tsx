@@ -43,6 +43,47 @@ export const DashboardExpensePieChart: React.FC = () => {
   const [totalExpense, setTotalExpense] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(true);
 
+  const computeFromClientTransactions = useCallback(() => {
+    const rawTxs = (window as any).allTransactionsData;
+    if (!Array.isArray(rawTxs) || rawTxs.length === 0) {
+      return { items: [], total: 0 };
+    }
+
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    const categoryMap: { [cat: string]: number } = {};
+    let sum = 0;
+
+    rawTxs.forEach((tx: any) => {
+      if (String(tx.type).toLowerCase() !== "expense") return;
+      const amt = Number(tx.amount || 0);
+      if (amt <= 0) return;
+
+      const dStr = tx.date || tx.transaction_date;
+      if (dStr && duration === "this_month") {
+        const d = new Date(dStr);
+        if (!isNaN(d.getTime())) {
+          if (d.getMonth() !== currentMonth || d.getFullYear() !== currentYear) return;
+        }
+      }
+
+      let catKey = String(tx.category || "others").toLowerCase().trim();
+      if (catKey === "other") catKey = "others";
+      categoryMap[catKey] = (categoryMap[catKey] || 0) + amt;
+      sum += amt;
+    });
+
+    const items: PieChartItem[] = Object.keys(categoryMap).map((cat) => ({
+      label: cat.charAt(0).toUpperCase() + cat.slice(1),
+      value: categoryMap[cat],
+      color: CATEGORY_COLORS[cat] || CATEGORY_COLORS.others,
+    }));
+
+    return { items, total: sum };
+  }, [duration]);
+
   const fetchCategoryExpenses = useCallback(async () => {
     try {
       setLoading(true);
@@ -57,22 +98,20 @@ export const DashboardExpensePieChart: React.FC = () => {
         headers: getAuthHeaders({ Accept: "application/json" }),
       });
 
-      if (response.status === 401) {
-        window.location.href = "login.html";
-        return;
-      }
-
       if (!response.ok) {
-        throw new Error(`Failed to fetch category expenses (Status: ${response.status})`);
+        const fallback = computeFromClientTransactions();
+        setPieData(fallback.items);
+        setTotalExpense(fallback.total);
+        return;
       }
 
       const data: ApiResponse = await response.json();
       const rawCategories = data.categories || [];
 
       if (!Array.isArray(rawCategories) || rawCategories.length === 0) {
-        setPieData([]);
-        setTotalExpense(0);
-        setLoading(false);
+        const fallback = computeFromClientTransactions();
+        setPieData(fallback.items);
+        setTotalExpense(fallback.total);
         return;
       }
 
@@ -90,14 +129,14 @@ export const DashboardExpensePieChart: React.FC = () => {
 
       setPieData(formattedData);
       setTotalExpense(sum);
-    } catch (err) {
-      console.error("Error fetching category expenses:", err);
-      setPieData([]);
-      setTotalExpense(0);
+    } catch {
+      const fallback = computeFromClientTransactions();
+      setPieData(fallback.items);
+      setTotalExpense(fallback.total);
     } finally {
       setLoading(false);
     }
-  }, [duration, startDate, endDate]);
+  }, [duration, startDate, endDate, computeFromClientTransactions]);
 
   useEffect(() => {
     fetchCategoryExpenses();
@@ -130,7 +169,7 @@ export const DashboardExpensePieChart: React.FC = () => {
             style={{
               padding: "0.35rem 0.65rem",
               fontSize: "0.8rem",
-              borderRadius: "0.375rem",
+              borderRadius: "0px",
               border: "1px solid #cbd5e1",
               backgroundColor: "#ffffff",
               color: "#1e293b",
@@ -151,14 +190,14 @@ export const DashboardExpensePieChart: React.FC = () => {
 
         {/* Custom Date Range Pickers */}
         {duration === "custom" && (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap", backgroundColor: "#f8fafc", padding: "0.5rem 0.65rem", borderRadius: "0.375rem", border: "1px solid #e2e8f0" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap", backgroundColor: "#f8fafc", padding: "0.5rem 0.65rem", borderRadius: "0px", border: "1px solid #e2e8f0" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.775rem", color: "#475569" }}>
               <span style={{ fontWeight: 600 }}>From:</span>
               <input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                style={{ padding: "0.25rem 0.4rem", fontSize: "0.775rem", borderRadius: "0.25rem", border: "1px solid #cbd5e1", outline: "none" }}
+                style={{ padding: "0.25rem 0.4rem", fontSize: "0.775rem", borderRadius: "0px", border: "1px solid #cbd5e1", outline: "none" }}
               />
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.775rem", color: "#475569" }}>
@@ -167,7 +206,7 @@ export const DashboardExpensePieChart: React.FC = () => {
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                style={{ padding: "0.25rem 0.4rem", fontSize: "0.775rem", borderRadius: "0.25rem", border: "1px solid #cbd5e1", outline: "none" }}
+                style={{ padding: "0.25rem 0.4rem", fontSize: "0.775rem", borderRadius: "0px", border: "1px solid #cbd5e1", outline: "none" }}
               />
             </div>
           </div>
@@ -181,7 +220,7 @@ export const DashboardExpensePieChart: React.FC = () => {
         </div>
       ) : pieData.length === 0 ? (
         <div style={{ padding: "2.5rem 1rem", textAlign: "center", width: "100%" }}>
-          <div style={{ width: "48px", height: "48px", borderRadius: "50%", backgroundColor: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 0.75rem auto" }}>
+          <div style={{ width: "48px", height: "48px", borderRadius: "0px", backgroundColor: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 0.75rem auto" }}>
             <svg style={{ width: "24px", height: "24px", color: "#94a3b8" }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
@@ -207,7 +246,7 @@ export const DashboardExpensePieChart: React.FC = () => {
           <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "0.4rem 0.85rem", fontSize: "0.775rem", width: "100%" }}>
             {pieData.map((item) => (
               <div key={item.label} style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: item.color, display: "inline-block" }}></span>
+                <span style={{ width: "8px", height: "8px", borderRadius: "0px", backgroundColor: item.color, display: "inline-block" }}></span>
                 <span style={{ color: "#334155", fontWeight: 600 }}>{item.label}:</span>
                 <span style={{ color: "#0f172a", fontWeight: 700 }}>₹{item.value.toLocaleString("en-IN")}</span>
               </div>

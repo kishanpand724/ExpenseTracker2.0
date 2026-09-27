@@ -85,7 +85,7 @@ export const ChartTooltip: React.FC<React.ComponentProps<typeof RechartsTooltip>
       contentStyle={{
         backgroundColor: "#1e293b",
         borderColor: "#334155",
-        borderRadius: "0.5rem",
+        borderRadius: "0px",
         color: "#f8fafc",
         fontSize: "0.875rem",
         boxShadow: "0 10px 15px -3px rgba(0,0,0,0.1)",
@@ -153,6 +153,7 @@ export const Line: React.FC<React.ComponentProps<typeof RechartsLine> & { classN
 };
 
 // Additional Bklit UI exports
+export { ResponsiveContainer } from "recharts";
 export const BarChart = RechartsBarChart;
 export const AreaChart = RechartsAreaChart;
 export const Bar = RechartsBar;

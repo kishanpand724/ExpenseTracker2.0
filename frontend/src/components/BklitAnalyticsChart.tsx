@@ -85,6 +85,133 @@ export const BklitAnalyticsChart: React.FC = () => {
   const [avgExpense, setAvgExpense] = useState<number>(0);
   const [highestExpenseTx, setHighestExpenseTx] = useState<Transaction | null>(null);
 
+  const computeClientAnalytics = useCallback(() => {
+    const rawTxs = (window as any).allTransactionsData;
+    if (!Array.isArray(rawTxs) || rawTxs.length === 0) {
+      setDailyTrends([]);
+      setTransactions([]);
+      setTotalIncome(0);
+      setTotalExpense(0);
+      setAvgExpense(0);
+      setHighestExpenseTx(null);
+      setCategoryBreakdown([]);
+      setMonthlySummaries([]);
+      return;
+    }
+
+    const txs: Transaction[] = rawTxs.map((t: any) => ({
+      id: Number(t.id || 0),
+      type: String(t.type || "expense").toLowerCase(),
+      category: String(t.category || "others").toLowerCase(),
+      amount: Number(t.amount || 0),
+      title: String(t.title || ""),
+      date: String(t.date || t.transaction_date || ""),
+    }));
+
+    setTransactions(txs);
+
+    let sumIncome = 0;
+    let sumExpense = 0;
+    let expenseCount = 0;
+    let maxExpTx: Transaction | null = null;
+
+    const mapByCategory: { [cat: string]: number } = {};
+    const mapByMonth: { [monthKey: string]: { income: number; expense: number } } = {};
+    const dailyMap: { [dayStr: string]: { income: number; expense: number; rawDate: string } } = {};
+
+    txs.forEach((tx) => {
+      const amt = tx.amount;
+      const type = tx.type;
+      let cat = tx.category;
+      if (cat === "other") cat = "others";
+
+      let dateStr = tx.date;
+      if (dateStr.includes("T")) dateStr = dateStr.split("T")[0];
+
+      if (type === "income") {
+        sumIncome += amt;
+      } else if (type === "expense") {
+        sumExpense += amt;
+        expenseCount++;
+        mapByCategory[cat] = (mapByCategory[cat] || 0) + amt;
+
+        if (!maxExpTx || amt > Number(maxExpTx.amount || 0)) {
+          maxExpTx = tx;
+        }
+      }
+
+      if (dateStr && dateStr.length >= 7) {
+        const monthKey = dateStr.substring(0, 7);
+        if (!mapByMonth[monthKey]) mapByMonth[monthKey] = { income: 0, expense: 0 };
+        if (type === "income") mapByMonth[monthKey].income += amt;
+        if (type === "expense") mapByMonth[monthKey].expense += amt;
+      }
+
+      if (dateStr) {
+        const d = new Date(dateStr);
+        const dayLabel = !isNaN(d.getTime())
+          ? `${d.getDate()} ${d.toLocaleString("default", { month: "short" })}`
+          : dateStr;
+        if (!dailyMap[dayLabel]) {
+          dailyMap[dayLabel] = { income: 0, expense: 0, rawDate: dateStr };
+        }
+        if (type === "income") dailyMap[dayLabel].income += amt;
+        if (type === "expense") dailyMap[dayLabel].expense += amt;
+      }
+    });
+
+    setTotalIncome(sumIncome);
+    setTotalExpense(sumExpense);
+    setAvgExpense(expenseCount > 0 ? sumExpense / expenseCount : 0);
+    setHighestExpenseTx(maxExpTx);
+
+    const trendsList: DailyTrendItem[] = Object.keys(dailyMap).map((label) => ({
+      rawDate: dailyMap[label].rawDate,
+      formattedDate: label,
+      income: dailyMap[label].income,
+      expense: dailyMap[label].expense,
+    }));
+    setDailyTrends(trendsList);
+
+    const catList: CategorySummary[] = Object.keys(mapByCategory)
+      .sort((a, b) => mapByCategory[b] - mapByCategory[a])
+      .map((catKey) => {
+        const amt = mapByCategory[catKey];
+        const pct = sumExpense > 0 ? Math.round((amt / sumExpense) * 100) : 0;
+        return {
+          category: catKey,
+          formattedCategory: catKey.charAt(0).toUpperCase() + catKey.slice(1),
+          amount: amt,
+          percentage: pct,
+          color: CATEGORY_COLORS[catKey] || CATEGORY_COLORS.others,
+        };
+      });
+    setCategoryBreakdown(catList);
+
+    const sortedMonths = Object.keys(mapByMonth).sort().reverse();
+    const monthlyList: MonthlySummary[] = sortedMonths.map((mKey) => {
+      const parts = mKey.split("-");
+      const year = parts[0];
+      const monthNum = parseInt(parts[1], 10) - 1;
+      const d = new Date(Number(year), monthNum, 1);
+      const formattedMonth = isNaN(d.getTime())
+        ? mKey
+        : d.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+
+      const inc = mapByMonth[mKey].income;
+      const exp = mapByMonth[mKey].expense;
+
+      return {
+        monthKey: mKey,
+        formattedMonth,
+        income: inc,
+        expense: exp,
+        net: inc - exp,
+      };
+    });
+    setMonthlySummaries(monthlyList);
+  }, []);
+
   const fetchTrendsAndAnalytics = useCallback(async () => {
     try {
       setLoading(true);
@@ -101,18 +228,19 @@ export const BklitAnalyticsChart: React.FC = () => {
         headers: getAuthHeaders({ Accept: "application/json" }),
       });
 
-      if (response.status === 401) {
-        window.location.href = "login.html";
-        return;
-      }
-
       if (!response.ok) {
-        throw new Error(`Failed to fetch analytics trends (Status: ${response.status})`);
+        computeClientAnalytics();
+        return;
       }
 
       const data: TrendsApiResponse = await response.json();
       const rawTrends = data.dailyTrends || [];
       const rawTxs = data.transactions || [];
+
+      if (rawTrends.length === 0 && rawTxs.length === 0) {
+        computeClientAnalytics();
+        return;
+      }
 
       setDailyTrends(rawTrends);
       setTransactions(rawTxs);
@@ -253,7 +381,7 @@ export const BklitAnalyticsChart: React.FC = () => {
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem", width: "100%" }}>
 
       {/* 1. COMPACT DURATION FILTER BAR */}
-      <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0.75rem", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+      <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem" }}>
           <div>
             <h3 style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a", margin: 0 }}>
@@ -273,7 +401,7 @@ export const BklitAnalyticsChart: React.FC = () => {
                 style={{
                   padding: "0.4rem 0.75rem",
                   fontSize: "0.825rem",
-                  borderRadius: "0.375rem",
+                  borderRadius: "0px",
                   border: "1px solid #cbd5e1",
                   backgroundColor: "#ffffff",
                   color: "#0f172a",
@@ -297,7 +425,7 @@ export const BklitAnalyticsChart: React.FC = () => {
               style={{
                 padding: "0.4rem 0.85rem",
                 fontSize: "0.8rem",
-                borderRadius: "0.375rem",
+                borderRadius: "0px",
                 border: "1px solid #cbd5e1",
                 backgroundColor: "#f8fafc",
                 color: "#334155",
@@ -319,7 +447,7 @@ export const BklitAnalyticsChart: React.FC = () => {
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                style={{ padding: "0.35rem 0.5rem", fontSize: "0.8rem", borderRadius: "0.375rem", border: "1px solid #cbd5e1", outline: "none" }}
+                style={{ padding: "0.35rem 0.5rem", fontSize: "0.8rem", borderRadius: "0px", border: "1px solid #cbd5e1", outline: "none" }}
               />
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem", color: "#334155" }}>
@@ -328,7 +456,7 @@ export const BklitAnalyticsChart: React.FC = () => {
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                style={{ padding: "0.35rem 0.5rem", fontSize: "0.8rem", borderRadius: "0.375rem", border: "1px solid #cbd5e1", outline: "none" }}
+                style={{ padding: "0.35rem 0.5rem", fontSize: "0.8rem", borderRadius: "0px", border: "1px solid #cbd5e1", outline: "none" }}
               />
             </div>
           </div>
@@ -339,40 +467,40 @@ export const BklitAnalyticsChart: React.FC = () => {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1rem" }}>
         
         {/* Total Income Card */}
-        <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0.75rem", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+        <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
             <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.025em" }}>Total Income</span>
-            <span style={{ width: "28px", height: "28px", borderRadius: "50%", backgroundColor: "#d1fae5", display: "flex", alignItems: "center", justifyContent: "center", color: "#10b981", fontSize: "0.85rem" }}>↓</span>
+            <span style={{ width: "28px", height: "28px", borderRadius: "0px", backgroundColor: "#d1fae5", display: "flex", alignItems: "center", justifyContent: "center", color: "#10b981", fontSize: "0.85rem" }}>↓</span>
           </div>
           <div style={{ fontSize: "1.35rem", fontWeight: 800, color: "#059669" }}>{formatCurrency(totalIncome)}</div>
           <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "0.35rem" }}>Inflow for selected period</div>
         </div>
 
         {/* Total Expenses Card */}
-        <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0.75rem", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+        <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
             <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.025em" }}>Total Expense</span>
-            <span style={{ width: "28px", height: "28px", borderRadius: "50%", backgroundColor: "#fee2e2", display: "flex", alignItems: "center", justifyContent: "center", color: "#ef4444", fontSize: "0.85rem" }}>↑</span>
+            <span style={{ width: "28px", height: "28px", borderRadius: "0px", backgroundColor: "#fee2e2", display: "flex", alignItems: "center", justifyContent: "center", color: "#ef4444", fontSize: "0.85rem" }}>↑</span>
           </div>
           <div style={{ fontSize: "1.35rem", fontWeight: 800, color: "#dc2626" }}>{formatCurrency(totalExpense)}</div>
           <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "0.35rem" }}>Outflow for selected period</div>
         </div>
 
         {/* Net Savings Card */}
-        <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0.75rem", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+        <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
             <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.025em" }}>Net Savings</span>
-            <span style={{ width: "28px", height: "28px", borderRadius: "50%", backgroundColor: netBalance >= 0 ? "#e0f2fe" : "#fee2e2", display: "flex", alignItems: "center", justifyContent: "center", color: netBalance >= 0 ? "#0284c7" : "#ef4444", fontSize: "0.85rem" }}>💰</span>
+            <span style={{ width: "28px", height: "28px", borderRadius: "0px", backgroundColor: netBalance >= 0 ? "#e0f2fe" : "#fee2e2", display: "flex", alignItems: "center", justifyContent: "center", color: netBalance >= 0 ? "#0284c7" : "#ef4444", fontSize: "0.85rem" }}>💰</span>
           </div>
           <div style={{ fontSize: "1.35rem", fontWeight: 800, color: netBalance >= 0 ? "#0284c7" : "#dc2626" }}>{formatCurrency(netBalance)}</div>
           <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "0.35rem" }}>Income minus Expense</div>
         </div>
 
         {/* Average Expense Card */}
-        <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0.75rem", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+        <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.5rem" }}>
             <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.025em" }}>Average Expense</span>
-            <span style={{ width: "28px", height: "28px", borderRadius: "50%", backgroundColor: "#fef3c7", display: "flex", alignItems: "center", justifyContent: "center", color: "#d97706", fontSize: "0.85rem" }}>📊</span>
+            <span style={{ width: "28px", height: "28px", borderRadius: "0px", backgroundColor: "#fef3c7", display: "flex", alignItems: "center", justifyContent: "center", color: "#d97706", fontSize: "0.85rem" }}>📊</span>
           </div>
           <div style={{ fontSize: "1.35rem", fontWeight: 800, color: "#d97706" }}>{formatCurrency(avgExpense)}</div>
           <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "0.35rem" }}>Per expense item</div>
@@ -381,7 +509,7 @@ export const BklitAnalyticsChart: React.FC = () => {
       </div>
 
       {/* 3. MAIN BKLIT UI LINE CHART: INCOME VS EXPENSE TREND */}
-      <div style={{ backgroundColor: "#ffffff", padding: "1.5rem", borderRadius: "0.75rem", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+      <div style={{ backgroundColor: "#ffffff", padding: "1.5rem", borderRadius: "0px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
         <div style={{ marginBottom: "1.25rem" }}>
           <h3 style={{ fontSize: "1.15rem", fontWeight: 700, color: "#0f172a", margin: 0 }}>
             Income vs Expense Trend
@@ -401,7 +529,7 @@ export const BklitAnalyticsChart: React.FC = () => {
           </div>
         ) : dailyTrends.length === 0 ? (
           <div style={{ padding: "3.5rem 1.5rem", textAlign: "center", width: "100%" }}>
-            <div style={{ width: "52px", height: "52px", borderRadius: "50%", backgroundColor: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem auto" }}>
+            <div style={{ width: "52px", height: "52px", borderRadius: "0px", backgroundColor: "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1rem auto" }}>
               <svg style={{ width: "26px", height: "26px", color: "#94a3b8" }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
               </svg>
@@ -454,7 +582,7 @@ export const BklitAnalyticsChart: React.FC = () => {
       </div>
 
       {/* 4. CATEGORY-WISE SPENDING BREAKDOWN */}
-      <div style={{ backgroundColor: "#ffffff", padding: "1.5rem", borderRadius: "0.75rem", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+      <div style={{ backgroundColor: "#ffffff", padding: "1.5rem", borderRadius: "0px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
         <h3 style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a", margin: "0 0 0.25rem 0" }}>Category-wise Expense Breakdown</h3>
         <p style={{ fontSize: "0.8rem", color: "#64748b", margin: "0 0 1.25rem 0" }}>
           Distribution of expenses logged across spending categories for this period
@@ -468,15 +596,15 @@ export const BklitAnalyticsChart: React.FC = () => {
               <div key={catItem.category}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.875rem", marginBottom: "0.35rem" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: catItem.color, display: "inline-block" }}></span>
+                    <span style={{ width: "10px", height: "10px", borderRadius: "0px", backgroundColor: catItem.color, display: "inline-block" }}></span>
                     <span style={{ fontWeight: 600, color: "#1e293b" }}>{catItem.formattedCategory}</span>
                   </div>
                   <span style={{ fontWeight: 700, color: "#334155" }}>
                     {formatCurrency(catItem.amount)} <span style={{ color: "#64748b", fontWeight: 500, fontSize: "0.8rem" }}>({catItem.percentage}%)</span>
                   </span>
                 </div>
-                <div style={{ width: "100%", height: "8px", backgroundColor: "#f1f5f9", borderRadius: "999px", overflow: "hidden" }}>
-                  <div style={{ width: `${catItem.percentage}%`, height: "100%", backgroundColor: catItem.color, borderRadius: "999px", transition: "width 0.5s ease" }}></div>
+                <div style={{ width: "100%", height: "8px", backgroundColor: "#f1f5f9", borderRadius: "0px", overflow: "hidden" }}>
+                  <div style={{ width: `${catItem.percentage}%`, height: "100%", backgroundColor: catItem.color, borderRadius: "0px", transition: "width 0.5s ease" }}></div>
                 </div>
               </div>
             ))}
@@ -488,7 +616,7 @@ export const BklitAnalyticsChart: React.FC = () => {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "1.25rem" }}>
         
         {/* Top Spending Category Card */}
-        <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0.75rem", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+        <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
           <h4 style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a", margin: "0 0 0.75rem 0", display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <span>🔥</span> Top Spending Category
           </h4>
@@ -507,7 +635,7 @@ export const BklitAnalyticsChart: React.FC = () => {
         </div>
 
         {/* Highest Single Expense Card */}
-        <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0.75rem", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+        <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
           <h4 style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a", margin: "0 0 0.75rem 0", display: "flex", alignItems: "center", gap: "0.5rem" }}>
             <span>⚡</span> Highest Single Expense
           </h4>
@@ -534,7 +662,7 @@ export const BklitAnalyticsChart: React.FC = () => {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1.25rem" }}>
         
         {/* Monthly Breakdown Table */}
-        <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0.75rem", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+        <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
           <h4 style={{ fontSize: "1rem", fontWeight: 700, color: "#0f172a", margin: "0 0 0.85rem 0" }}>
             Monthly Breakdown
           </h4>
@@ -569,14 +697,14 @@ export const BklitAnalyticsChart: React.FC = () => {
         </div>
 
         {/* Financial Insights */}
-        <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0.75rem", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
+        <div style={{ backgroundColor: "#ffffff", padding: "1.25rem", borderRadius: "0px", border: "1px solid #e2e8f0", boxShadow: "0 1px 3px rgba(0,0,0,0.05)" }}>
           <h4 style={{ fontSize: "1rem", fontWeight: 700, color: "#0f172a", margin: "0 0 0.85rem 0" }}>
             Financial Insights
           </h4>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", fontSize: "0.825rem" }}>
             
             {/* Savings Rate Insight */}
-            <div style={{ padding: "0.75rem", backgroundColor: "#f0fdf4", borderLeft: "4px solid #10b981", borderRadius: "0.375rem" }}>
+            <div style={{ padding: "0.75rem", backgroundColor: "#f0fdf4", borderLeft: "4px solid #10b981", borderRadius: "0px" }}>
               <div style={{ fontWeight: 700, color: "#166534" }}>Savings Rate: {savingsRate}%</div>
               <div style={{ color: "#15803d", marginTop: "0.15rem" }}>
                 {savingsRate >= 20 ? "Great job! You are maintaining a healthy savings rate." : "Consider reviewing expenses to improve your net savings."}
@@ -584,7 +712,7 @@ export const BklitAnalyticsChart: React.FC = () => {
             </div>
 
             {/* Total Volume Insight */}
-            <div style={{ padding: "0.75rem", backgroundColor: "#f0f9ff", borderLeft: "4px solid #0284c7", borderRadius: "0.375rem" }}>
+            <div style={{ padding: "0.75rem", backgroundColor: "#f0f9ff", borderLeft: "4px solid #0284c7", borderRadius: "0px" }}>
               <div style={{ fontWeight: 700, color: "#075985" }}>Period Activity</div>
               <div style={{ color: "#0369a1", marginTop: "0.15rem" }}>
                 A total of <strong>{transactions.length}</strong> transactions recorded in this date range.
@@ -592,7 +720,7 @@ export const BklitAnalyticsChart: React.FC = () => {
             </div>
 
             {/* Net Balance Insight */}
-            <div style={{ padding: "0.75rem", backgroundColor: netBalance >= 0 ? "#f8fafc" : "#fef2f2", borderLeft: netBalance >= 0 ? "4px solid #64748b" : "4px solid #ef4444", borderRadius: "0.375rem" }}>
+            <div style={{ padding: "0.75rem", backgroundColor: netBalance >= 0 ? "#f8fafc" : "#fef2f2", borderLeft: netBalance >= 0 ? "4px solid #64748b" : "4px solid #ef4444", borderRadius: "0px" }}>
               <div style={{ fontWeight: 700, color: netBalance >= 0 ? "#334155" : "#991b1b" }}>Cash Flow Status</div>
               <div style={{ color: netBalance >= 0 ? "#475569" : "#b91c1c", marginTop: "0.15rem" }}>
                 {netBalance >= 0 ? "Positive cash flow. Total income exceeds expenses." : "Total expenses exceed recorded income for this period."}
