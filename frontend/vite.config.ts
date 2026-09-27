@@ -20,7 +20,10 @@ export default defineConfig(() => {
     },
     define: {
       'import.meta.env.VITE_BACKEND_URL': JSON.stringify(
-        process.env.VITE_BACKEND_URL || 'https://expensetracker2-0-jl02.onrender.com'
+        process.env.VITE_BACKEND_URL || process.env.VITE_API_URL || ''
+      ),
+      'import.meta.env.VITE_API_URL': JSON.stringify(
+        process.env.VITE_API_URL || process.env.VITE_BACKEND_URL || ''
       ),
     },
     build: {

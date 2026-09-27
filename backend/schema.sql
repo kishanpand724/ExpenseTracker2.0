@@ -1,5 +1,5 @@
--- PostgreSQL Schema for Personal Expense Tracker (Java Servlets Backend)
--- Database: postgres / expense
+-- PostgreSQL Schema for Expense Tracker
+-- Database: PostgreSQL (Supabase / Render / Cloud SQL)
 
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS transactions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(transaction_date DESC);
+CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);
 
 CREATE TABLE IF NOT EXISTS subscriptions (
     id SERIAL PRIMARY KEY,
@@ -33,3 +34,5 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     user_id INTEGER REFERENCES users(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions(user_id);

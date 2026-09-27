@@ -13,23 +13,28 @@ import dotenv from "dotenv";
 
 const currentDir = typeof __dirname !== "undefined"
   ? __dirname
-  : path.dirname(fileURLToPath(import.meta.url));
+  : path.resolve(process.cwd(), "backend");
 
 // Load environment variables from backend/.env or root .env
 dotenv.config({ path: path.join(currentDir, ".env") });
 dotenv.config();
 
-// Helper password functions matching Java PasswordUtils (PBKDF2WithHmacSHA256) & bcrypt
-function hashPasswordPbkdf2(password: string): string {
-  const salt = crypto.randomBytes(16);
-  const hash = crypto.pbkdf2Sync(password, salt, 10000, 32, "sha256");
-  return salt.toString("base64") + ":" + hash.toString("base64");
+// Helper password functions supporting bcrypt and PBKDF2 password hashing
+function hashPassword(password: string): string {
+  return bcrypt.hashSync(password, 10);
 }
 
-function verifyPasswordHash(password: string, storedHash: string, userEmail?: string): boolean {
+function verifyPasswordHash(password: string, storedHash: string): boolean {
   if (!password || !storedHash) return false;
 
-  // 1. Check PBKDF2 (saltBase64:hashBase64) format from Java PasswordUtils
+  // 1. Bcrypt format ($2a$, $2b$, $2y$)
+  if (storedHash.startsWith("$2a$") || storedHash.startsWith("$2b$") || storedHash.startsWith("$2y$")) {
+    try {
+      if (bcrypt.compareSync(password, storedHash)) return true;
+    } catch (e) {}
+  }
+
+  // 2. PBKDF2 (saltBase64:hashBase64) format (for any legacy accounts)
   if (storedHash.includes(":")) {
     try {
       const parts = storedHash.split(":");
@@ -40,51 +45,44 @@ function verifyPasswordHash(password: string, storedHash: string, userEmail?: st
     } catch (e) {}
   }
 
-  // 2. Check Bcrypt format
-  if (storedHash.startsWith("$2a$") || storedHash.startsWith("$2b$") || storedHash.startsWith("$2y$")) {
-    try {
-      if (bcrypt.compareSync(password, storedHash)) return true;
-    } catch (e) {}
-  }
-
-  // 3. Fallback demo account check
-  if (userEmail && "demo@expensetracker.com".toLowerCase() === userEmail.toLowerCase() && "password123" === password) {
-    return true;
-  }
-
-  // 4. Plain text match fallback
-  if (password === storedHash) return true;
-
   return false;
 }
 
 const app = express();
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || "3000", 10);
 
-// Reverse proxy support for production deployment (Render, Cloud Run, etc.)
+// Reverse proxy support for production deployment (Render, Vercel, Cloud Run, etc.)
 app.set("trust proxy", 1);
 
-// Allowed origin for cross-origin Vercel production frontend
-const ALLOWED_ORIGIN = "https://expense-tracker2-0-eight.vercel.app";
+// Allowed origins for CORS (Vercel frontend, custom FRONTEND_URL, and local dev)
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  process.env.CLIENT_URL,
+  "https://expense-tracker2-0-eight.vercel.app",
+  "https://expensetracker2-0-jl02.onrender.com"
+]
+  .filter(Boolean)
+  .flatMap((u) => u!.split(",").map((s) => s.trim().replace(/\/+$/, "")));
 
-// CORS configuration to allow exactly: https://expense-tracker2-0-eight.vercel.app
+// CORS middleware
 app.use((req, res, next) => {
   const origin = (req.headers.origin as string) || "";
-
-  if (origin === ALLOWED_ORIGIN) {
-    res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-  } else if (
+  const isAllowed =
+    !origin ||
+    allowedOrigins.includes(origin) ||
     origin === "http://localhost:3000" ||
     origin === "http://localhost:5173" ||
     origin === "http://127.0.0.1:3000" ||
     origin === "http://127.0.0.1:5173" ||
-    origin.endsWith(".run.app")
-  ) {
+    origin.endsWith(".vercel.app") ||
+    origin.endsWith(".run.app") ||
+    origin.endsWith(".onrender.com");
+
+  if (isAllowed && origin) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Access-Control-Allow-Credentials", "true");
-  } else if (!origin) {
-    res.setHeader("Access-Control-Allow-Origin", ALLOWED_ORIGIN);
+  } else if (!origin && allowedOrigins.length > 0) {
+    res.setHeader("Access-Control-Allow-Origin", allowedOrigins[0]);
     res.setHeader("Access-Control-Allow-Credentials", "true");
   }
 
@@ -110,6 +108,13 @@ app.use(cookieParser());
 
 const isProd = process.env.NODE_ENV === "production";
 const SESSION_SECRET = process.env.SESSION_SECRET || "expense_tracker_secure_session_secret_2026";
+if (!process.env.SESSION_SECRET && isProd) {
+  console.warn("WARNING: SESSION_SECRET is not set in environment variables! Using fallback for development.");
+}
+
+const safeErrorMessage = (fallback: string, err?: any): string => {
+  return isProd ? fallback : (err?.message ? `${fallback}: ${err.message}` : fallback);
+};
 
 // Auth token signing & verification helpers (provides fallback for third-party cookie restrictions)
 function createAuthToken(userId: number, email: string, name: string): string {
@@ -145,8 +150,8 @@ app.use(
     cookie: {
       httpOnly: true,
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      secure: true,
-      sameSite: "none"
+      secure: false,
+      sameSite: "lax"
     }
   })
 );
@@ -155,19 +160,25 @@ app.use(
 app.use((req, res, next) => {
   if (req.session && req.session.cookie) {
     const origin = (req.headers.origin as string) || "";
-    const isLocalHttp =
-      !req.secure &&
-      req.headers["x-forwarded-proto"] !== "https" &&
-      (origin.includes("localhost") ||
-        origin.includes("127.0.0.1") ||
-        (!origin && (req.hostname === "localhost" || req.hostname === "127.0.0.1")));
+    const isHttps = req.secure || req.headers["x-forwarded-proto"] === "https";
+    const isLocal =
+      origin.includes("localhost") ||
+      origin.includes("127.0.0.1") ||
+      (!origin && (req.hostname === "localhost" || req.hostname === "127.0.0.1"));
+    const isCrossSite = Boolean(origin && !origin.includes(req.hostname));
 
-    if (isLocalHttp) {
-      req.session.cookie.secure = false;
-      req.session.cookie.sameSite = "lax";
-    } else {
+    if (isHttps && isCrossSite && !isLocal) {
+      // Cross-site HTTPS request (e.g. Vercel frontend calling Render backend)
       req.session.cookie.secure = true;
       req.session.cookie.sameSite = "none";
+    } else if (isHttps) {
+      // Same-site HTTPS
+      req.session.cookie.secure = true;
+      req.session.cookie.sameSite = "lax";
+    } else {
+      // Local development HTTP
+      req.session.cookie.secure = false;
+      req.session.cookie.sameSite = "lax";
     }
   }
   next();
@@ -340,6 +351,21 @@ async function initDatabase() {
     } catch (e) {}
   }
 
+  // Ensure serial sequences are correctly synchronized to avoid unique key collisions
+  try {
+    await db.query("SELECT setval(pg_get_serial_sequence('users', 'id'), COALESCE((SELECT max(id) FROM users), 1));");
+    await db.query("SELECT setval(pg_get_serial_sequence('transactions', 'id'), COALESCE((SELECT max(id) FROM transactions), 1));");
+    await db.query("SELECT setval(pg_get_serial_sequence('subscriptions', 'id'), COALESCE((SELECT max(id) FROM subscriptions), 1));");
+  } catch (e) {}
+
+  if (externalPgPool) {
+    try {
+      await externalPgPool.query("SELECT setval(pg_get_serial_sequence('users', 'id'), COALESCE((SELECT max(id) FROM users), 1));");
+      await externalPgPool.query("SELECT setval(pg_get_serial_sequence('transactions', 'id'), COALESCE((SELECT max(id) FROM transactions), 1));");
+      await externalPgPool.query("SELECT setval(pg_get_serial_sequence('subscriptions', 'id'), COALESCE((SELECT max(id) FROM subscriptions), 1));");
+    } catch (e) {}
+  }
+
   // Seed initial transactions if table is completely empty
   const countRes = await db.query<{ count: string }>("SELECT COUNT(*) as count FROM transactions;");
   if (parseInt(countRes.rows[0]?.count || "0", 10) === 0 && !externalPgPool) {
@@ -369,7 +395,7 @@ initDatabase().catch(err => console.error("Database initialization error:", err)
 // AUTHENTICATION ENDPOINTS
 // ==========================================
 
-app.post(["/signup", "/SignupServlet", "/api/auth/signup"], async (req, res) => {
+app.post(["/signup", "/api/signup", "/api/auth/signup", "/SignupServlet"], async (req, res) => {
   const { name, email, password, confirmPassword } = req.body;
 
   if (!name || !email || !password || !confirmPassword) {
@@ -379,6 +405,10 @@ app.post(["/signup", "/SignupServlet", "/api/auth/signup"], async (req, res) => 
   const cleanName = String(name).trim();
   const cleanEmail = String(email).trim().toLowerCase();
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  if (cleanName.length < 2) {
+    return res.status(400).json({ error: "Name must be at least 2 characters long." });
+  }
 
   if (!emailRegex.test(cleanEmail)) {
     return res.status(400).json({ error: "Please enter a valid email address." });
@@ -394,35 +424,42 @@ app.post(["/signup", "/SignupServlet", "/api/auth/signup"], async (req, res) => 
 
   try {
     const checkSql = "SELECT id FROM users WHERE LOWER(email) = $1;";
-    const existing = await db.query<{ id: number }>(checkSql, [cleanEmail]);
-
-    if (existing.rows.length > 0) {
-      return res.status(400).json({ error: "An account with this email address already exists. Please log in." });
-    }
+    let emailExists = false;
 
     if (externalPgPool) {
       try {
         const extExisting = await externalPgPool.query<{ id: number }>(checkSql, [cleanEmail]);
-        if (extExisting.rows.length > 0) {
-          return res.status(400).json({ error: "An account with this email address already exists. Please log in." });
-        }
+        if (extExisting.rows.length > 0) emailExists = true;
       } catch (e: any) {}
     }
 
-    const passwordHash = hashPasswordPbkdf2(password);
+    if (!emailExists) {
+      const localExisting = await db.query<{ id: number }>(checkSql, [cleanEmail]);
+      if (localExisting.rows.length > 0) emailExists = true;
+    }
+
+    if (emailExists) {
+      return res.status(400).json({ error: "An account with this email address already exists. Please log in." });
+    }
+
+    const passwordHash = hashPassword(password);
     const insertSql = "INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id;";
 
-    let newUserId: number;
+    let newUserId: number = 0;
 
     if (externalPgPool) {
       try {
         const extRes = await externalPgPool.query<{ id: number }>(insertSql, [cleanName, cleanEmail, passwordHash]);
-        newUserId = extRes.rows[0]?.id || Date.now();
-        await db.query(
-          "INSERT INTO users (id, name, email, password_hash) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO NOTHING;",
-          [newUserId, cleanName, cleanEmail, passwordHash]
-        );
+        newUserId = extRes.rows[0]?.id;
+        try {
+          await db.query(
+            "INSERT INTO users (id, name, email, password_hash) VALUES ($1, $2, $3, $4) ON CONFLICT (email) DO NOTHING;",
+            [newUserId, cleanName, cleanEmail, passwordHash]
+          );
+          await db.query("SELECT setval(pg_get_serial_sequence('users', 'id'), COALESCE((SELECT max(id) FROM users), 1));");
+        } catch (e) {}
       } catch (extErr: any) {
+        console.error("External PG insert failed, inserting into local DB:", extErr.message);
         const localRes = await db.query<{ id: number }>(insertSql, [cleanName, cleanEmail, passwordHash]);
         newUserId = localRes.rows[0]?.id || Date.now();
       }
@@ -453,7 +490,7 @@ app.post(["/signup", "/SignupServlet", "/api/auth/signup"], async (req, res) => 
     });
   } catch (err: any) {
     console.error("Signup error:", err);
-    return res.status(500).json({ error: "Account creation failed: " + err.message });
+    return res.status(500).json({ error: safeErrorMessage("Account creation failed. Please try again later.", err) });
   }
 });
 
@@ -473,9 +510,12 @@ app.get(["/signup", "/SignupServlet"], (req, res) => {
   return res.redirect(302, "signup.html");
 });
 
-app.post(["/login", "/LoginServlet", "/api/auth/login"], async (req, res) => {
-  const { email, password } = req.body;
+app.post(["/login", "/api/login", "/api/auth/login", "/LoginServlet"], async (req, res) => {
+  const rawIdentifier = req.body.email || req.body.username;
+  const password = req.body.password;
+  const isApi = (req.path || "").startsWith("/api/") || (req.originalUrl || "").startsWith("/api/");
   const isAjax =
+    isApi ||
     Boolean(req.headers.origin) ||
     req.xhr ||
     req.headers.accept?.includes("json") ||
@@ -483,44 +523,44 @@ app.post(["/login", "/LoginServlet", "/api/auth/login"], async (req, res) => {
     req.headers["x-requested-with"] === "XMLHttpRequest" ||
     Boolean(req.headers.authorization);
 
-  if (!email || !password) {
+  if (!rawIdentifier || !password) {
     if (!isAjax) {
-      return res.redirect(302, "login.html?error=" + encodeURIComponent("Email and password are required."));
+      return res.redirect(302, "login.html?error=" + encodeURIComponent("Email/username and password are required."));
     }
-    return res.status(400).json({ error: "Email and password are required." });
+    return res.status(400).json({ error: "Email/username and password are required." });
   }
 
-  const cleanEmail = String(email).trim().toLowerCase();
+  const cleanIdentifier = String(rawIdentifier).trim().toLowerCase();
 
   try {
-    const selectSql = "SELECT id, name, email, password_hash FROM users WHERE LOWER(email) = $1;";
+    const selectSql = "SELECT id, name, email, password_hash FROM users WHERE LOWER(email) = $1 OR LOWER(name) = $1;";
     let userRow: any = null;
 
     if (externalPgPool) {
       try {
-        const extRes = await externalPgPool.query(selectSql, [cleanEmail]);
+        const extRes = await externalPgPool.query(selectSql, [cleanIdentifier]);
         if (extRes.rows.length > 0) userRow = extRes.rows[0];
       } catch (e: any) {}
     }
 
     if (!userRow) {
-      const localRes = await db.query(selectSql, [cleanEmail]);
+      const localRes = await db.query(selectSql, [cleanIdentifier]);
       if (localRes.rows.length > 0) userRow = localRes.rows[0];
     }
 
     if (!userRow) {
       if (!isAjax) {
-        return res.redirect(302, "login.html?error=" + encodeURIComponent("Invalid email or password."));
+        return res.redirect(302, "login.html?error=" + encodeURIComponent("Invalid email/username or password."));
       }
-      return res.status(401).json({ error: "Invalid email or password." });
+      return res.status(401).json({ error: "Invalid email/username or password." });
     }
 
-    const isMatch = verifyPasswordHash(password, userRow.password_hash, userRow.email);
+    const isMatch = verifyPasswordHash(password, userRow.password_hash);
     if (!isMatch) {
       if (!isAjax) {
-        return res.redirect(302, "login.html?error=" + encodeURIComponent("Invalid email or password."));
+        return res.redirect(302, "login.html?error=" + encodeURIComponent("Invalid email/username or password."));
       }
-      return res.status(401).json({ error: "Invalid email or password." });
+      return res.status(401).json({ error: "Invalid email/username or password." });
     }
 
     req.session.userId = userRow.id;
@@ -549,9 +589,9 @@ app.post(["/login", "/LoginServlet", "/api/auth/login"], async (req, res) => {
   } catch (err: any) {
     console.error("Login error:", err);
     if (!isAjax) {
-      return res.redirect(302, "login.html?error=" + encodeURIComponent("Login failed: " + err.message));
+      return res.redirect(302, "login.html?error=" + encodeURIComponent("Login failed. Please check credentials."));
     }
-    return res.status(500).json({ error: "Login failed: " + err.message });
+    return res.status(500).json({ error: safeErrorMessage("Login failed. Please check credentials.", err) });
   }
 });
 
@@ -600,15 +640,22 @@ const handleSessionCheck = (req: express.Request, res: express.Response) => {
   return res.json({ authenticated: false });
 };
 
-app.get(["/session-check", "/SessionCheckServlet", "/api/auth/me", "/AuthCheckServlet", "/auth-check"], handleSessionCheck);
-app.post(["/session-check", "/SessionCheckServlet", "/api/auth/me", "/AuthCheckServlet", "/auth-check"], handleSessionCheck);
+app.get(["/session-check", "/api/session-check", "/api/auth/session", "/SessionCheckServlet", "/api/auth/me", "/AuthCheckServlet", "/auth-check"], handleSessionCheck);
+app.post(["/session-check", "/api/session-check", "/api/auth/session", "/SessionCheckServlet", "/api/auth/me", "/AuthCheckServlet", "/auth-check"], handleSessionCheck);
 
 const handleLogout = (req: express.Request, res: express.Response) => {
-  const isAjax = req.xhr || req.headers.accept?.includes("json") || req.is("json");
+  const isApi = (req.path || "").startsWith("/api/") || (req.originalUrl || "").startsWith("/api/");
+  const isAjax = isApi || req.xhr || req.headers.accept?.includes("json") || req.is("json");
+  const isHttps = req.secure || req.headers["x-forwarded-proto"] === "https";
+  const origin = (req.headers.origin as string) || "";
+  const isLocal = origin.includes("localhost") || origin.includes("127.0.0.1") ||
+                  req.hostname === "localhost" || req.hostname === "127.0.0.1";
+  const isCrossSite = Boolean(origin && !origin.includes(req.hostname));
+
   const cookieOptions = {
     httpOnly: true,
-    secure: isProd ? true : "auto" as any,
-    sameSite: isProd ? "none" as any : "lax" as any
+    secure: (isHttps && isCrossSite && !isLocal) || (isHttps && !isLocal),
+    sameSite: (isHttps && isCrossSite && !isLocal) ? ("none" as const) : ("lax" as const)
   };
 
   const onDone = () => {
@@ -629,8 +676,8 @@ const handleLogout = (req: express.Request, res: express.Response) => {
   }
 };
 
-app.post(["/logout", "/LogoutServlet", "/api/auth/logout"], handleLogout);
-app.get(["/logout", "/LogoutServlet", "/api/auth/logout"], handleLogout);
+app.post(["/logout", "/api/logout", "/LogoutServlet", "/api/auth/logout"], handleLogout);
+app.get(["/logout", "/api/logout", "/LogoutServlet", "/api/auth/logout"], handleLogout);
 
 // Helper auth middleware supporting both express-session and Authorization token fallback
 function getAuthenticatedUserId(req: express.Request, res: express.Response): number | null {
@@ -708,7 +755,7 @@ app.get("/view-transactions", async (req, res) => {
     return res.json(rows);
   } catch (err: any) {
     console.error("PG query error:", err);
-    return res.status(500).json({ error: "Database query failed: " + err.message });
+    return res.status(500).json({ error: safeErrorMessage("Failed to retrieve transactions.", err) });
   }
 });
 
@@ -821,7 +868,7 @@ app.get(["/category-expenses", "/view-category-expenses"], async (req, res) => {
     });
   } catch (err: any) {
     console.error("PG category expenses query error:", err);
-    return res.status(500).json({ error: "Database query failed: " + err.message });
+    return res.status(500).json({ error: safeErrorMessage("Failed to retrieve category expenses.", err) });
   }
 });
 
@@ -968,7 +1015,7 @@ app.get(["/daily-trends", "/view-daily-trends"], async (req, res) => {
     });
   } catch (err: any) {
     console.error("PG daily trends query error:", err);
-    return res.status(500).json({ error: "Database query failed: " + err.message });
+    return res.status(500).json({ error: safeErrorMessage("Failed to retrieve daily trends.", err) });
   }
 });
 
@@ -1021,7 +1068,7 @@ app.post("/add-transaction", async (req, res) => {
     });
   } catch (err: any) {
     console.error("Database insert error:", err);
-    return res.status(500).json({ error: "Failed to insert into database: " + err.message });
+    return res.status(500).json({ error: safeErrorMessage("Failed to add transaction.", err) });
   }
 });
 
@@ -1063,7 +1110,7 @@ app.all(["/delete-transaction", "/delete-transaction/:id", "/DeleteServlet", "/a
     });
   } catch (err: any) {
     console.error("PG delete query error:", err);
-    return res.status(500).json({ error: "Failed to delete transaction from database: " + err.message });
+    return res.status(500).json({ error: safeErrorMessage("Failed to delete transaction.", err) });
   }
 });
 
@@ -1101,7 +1148,7 @@ app.post(["/edit-transaction", "/EditServlet", "/EditTransactionServlet"], async
     return res.json({ success: true, message: "Transaction updated in PostgreSQL database" });
   } catch (err: any) {
     console.error("PG edit error:", err);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: safeErrorMessage("Failed to update transaction.", err) });
   }
 });
 
@@ -1156,7 +1203,7 @@ app.post("/api/subscriptions", async (req, res) => {
     return res.json({ success: true, message: "Subscription added to Supabase PostgreSQL" });
   } catch (err: any) {
     console.error("Add subscription error:", err.message);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: safeErrorMessage("Failed to add subscription.", err) });
   }
 });
 
@@ -1177,10 +1224,10 @@ app.post("/api/subscriptions/delete", async (req, res) => {
         await externalPgPool.query(deleteSql, [id, userId]);
       } catch (e: any) {}
     }
-    return res.json({ success: true, message: "Subscription deleted from Supabase PostgreSQL" });
+    return res.json({ success: true, message: "Subscription deleted successfully" });
   } catch (err: any) {
     console.error("Delete subscription error:", err.message);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: safeErrorMessage("Failed to delete subscription.", err) });
   }
 });
 
@@ -1214,7 +1261,7 @@ app.post("/api/subscriptions/update", async (req, res) => {
     return res.json({ success: true, message: "Subscription updated successfully" });
   } catch (err: any) {
     console.error("Update subscription error:", err.message);
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: safeErrorMessage("Failed to update subscription.", err) });
   }
 });
 
@@ -1235,19 +1282,19 @@ app.get("/api/db-status", async (req, res) => {
 
     res.json({
       status: "Connected & Active",
-      engine: isExtActive ? "External PostgreSQL Cloud Database" : "Embedded PostgreSQL Engine",
+      engine: isExtActive ? "PostgreSQL Cloud Database" : "Embedded PostgreSQL Engine",
       isExternalConnected: isExtActive,
       totalRecords: isExtActive ? extCount : parseInt(result.rows[0]?.count || "0", 10),
       currentUrl: currentDbUrl ? currentDbUrl.replace(/:[^:@]+@/, ":****@") : "Embedded PostgreSQL"
     });
   } catch (err: any) {
-    res.status(500).json({ status: "Error", error: err.message });
+    res.status(500).json({ status: "Error", error: safeErrorMessage("Database status check failed.", err) });
   }
 });
 
 app.get("/api/db-config", (req, res) => {
   res.json({
-    db_url: currentDbUrl,
+    db_url: currentDbUrl ? currentDbUrl.replace(/:[^:@]+@/, ":****@") : "",
     isConnected: externalPgPool !== null
   });
 });
@@ -1313,73 +1360,13 @@ app.post("/api/db-config", async (req, res) => {
     });
   } catch (err: any) {
     return res.status(500).json({
-      error: "Connection failed: " + err.message + ". Please check hostname, port, user, password, and SSL settings."
+      error: safeErrorMessage("Database connection failed. Please verify hostname, credentials, port, and SSL settings.", err)
     });
   }
 });
 
-// Java Code Inspector Endpoint
-app.get("/api/java-code", (req, res) => {
-  try {
-    const findFile = (relPath: string) => {
-      const candidates = [
-        path.join(currentDir, relPath),
-        path.join(process.cwd(), "backend", relPath),
-        path.join(process.cwd(), relPath)
-      ];
-      for (const p of candidates) {
-        if (fs.existsSync(p)) return fs.readFileSync(p, "utf-8");
-      }
-      return "// File located in Java project repository";
-    };
-
-    const dbJava = findFile("src/main/java/database/Db.java");
-    const dbInitializer = findFile("src/main/java/database/DatabaseInitializer.java");
-    const passwordUtils = findFile("src/main/java/util/PasswordUtils.java");
-    const loginServlet = findFile("src/main/java/servlet/LoginServlet.java");
-    const signupServlet = findFile("src/main/java/servlet/SignupServlet.java");
-    const logoutServlet = findFile("src/main/java/servlet/LogoutServlet.java");
-    const authCheckServlet = findFile("src/main/java/servlet/AuthCheckServlet.java");
-    const viewServlet = findFile("src/main/java/servlet/ViewTransactionsServlet.java");
-    const addServlet = findFile("src/main/java/servlet/AddTransactionServlet.java");
-    const editServlet = findFile("src/main/java/servlet/EditTransactionServlet.java");
-    const deleteServlet = findFile("src/main/java/servlet/DeleteTransactionServlet.java");
-    const subscriptionsServlet = findFile("src/main/java/servlet/SubscriptionsServlet.java");
-    const deleteSubServlet = findFile("src/main/java/servlet/DeleteSubscriptionServlet.java");
-    const categoryExpensesServlet = findFile("src/main/java/servlet/CategoryExpensesServlet.java");
-    const dailyTrendsServlet = findFile("src/main/java/servlet/DailyTrendsServlet.java");
-    const schemaSql = findFile("schema.sql");
-    const webXml = findFile("src/main/webapp/WEB-INF/web.xml");
-
-    res.json({
-      dbJava,
-      dbInitializer,
-      passwordUtils,
-      loginServlet,
-      signupServlet,
-      logoutServlet,
-      authCheckServlet,
-      viewServlet,
-      addServlet,
-      editServlet,
-      deleteServlet,
-      subscriptionsServlet,
-      deleteSubServlet,
-      categoryExpensesServlet,
-      dailyTrendsServlet,
-      schemaSql,
-      webXml,
-      dbUrl: currentDbUrl ? currentDbUrl.replace(/^postgres(ql)?:\/\//, "jdbc:postgresql://") : "jdbc:postgresql://[CONFIGURED_IN_ENV]:5432/postgres",
-      dbUser: process.env.SUPABASE_USER || "postgres",
-      dbPass: "[CONFIGURED_VIA_ENV]"
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Health check endpoint for Render / monitoring
-app.get("/api/health", (req, res) => {
+// Health check endpoints for Render, monitoring, and status probes
+app.get(["/health", "/api/health"], (req, res) => {
   res.json({
     status: "ok",
     service: "Expense Tracker Backend",

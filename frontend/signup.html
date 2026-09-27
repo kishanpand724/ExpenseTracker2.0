@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sign Up - Personal Expense Tracker</title>
-    <meta name="backend-url" content="https://expensetracker2-0-jl02.onrender.com">
     <script type="module" src="/src/config/api.ts"></script>
     <script src="apiConfig.js"></script>
     <link rel="stylesheet" href="style.css">
@@ -263,7 +262,7 @@
                 // Submit to Signup endpoint with session credentials
                 const signupUrl = typeof window.getApiUrl === "function"
                     ? window.getApiUrl("signup")
-                    : ((window.BACKEND_URL || "https://expensetracker2-0-jl02.onrender.com").replace(/\/+$/, "") + "/signup");
+                    : "/signup";
                 const authHeaders = typeof window.getAuthHeaders === "function"
                     ? window.getAuthHeaders({
                         "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",

@@ -1,14 +1,14 @@
 document.addEventListener("DOMContentLoaded", function () {
 
-    const RENDER_BACKEND_URL = "https://expensetracker2-0-jl02.onrender.com";
     const resolveApi = (url) => {
         if (typeof window.getApiUrl === "function") {
             return window.getApiUrl(url);
         }
-        const base = (window.BACKEND_URL || RENDER_BACKEND_URL).trim().replace(/\/+$/, "");
+        const base = (window.API_URL || window.BACKEND_URL || "").trim().replace(/\/+$/, "");
         if (!url) return base;
         if (url.startsWith("http://") || url.startsWith("https://")) return url;
-        return base + (url.startsWith("/") ? url : "/" + url);
+        const clean = url.startsWith("/") ? url : "/" + url;
+        return base ? (base + clean) : clean;
     };
     const getAuthHeaders = (extra) => (typeof window.getAuthHeaders === "function" ? window.getAuthHeaders(extra) : (extra || {}));
 

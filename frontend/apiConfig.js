@@ -3,48 +3,67 @@
  * Configured for production (Vercel frontend -> Render backend: https://expensetracker2-0-jl02.onrender.com)
  */
 (function () {
-  const RENDER_BACKEND_URL = "https://expensetracker2-0-jl02.onrender.com";
-  let backendUrl = RENDER_BACKEND_URL;
+  const DEFAULT_RENDER_BACKEND_URL = "https://expensetracker2-0-jl02.onrender.com";
 
-  if (typeof window !== "undefined") {
-    // 1. Check window-level override or Vite config (import.meta.env.VITE_BACKEND_URL)
-    if (window.BACKEND_URL) {
-      backendUrl = window.BACKEND_URL;
-    } else if (window.BACKEND_API_URL) {
-      backendUrl = window.BACKEND_API_URL;
+  function determineBackendUrl() {
+    if (typeof window === "undefined") return "";
+
+    const hostname = window.location.hostname || "";
+
+    // 1. Same-host preview or local development: always use relative URL ("")
+    if (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname.endsWith(".run.app")
+    ) {
+      return "";
     }
-    // 2. Check injected environment object
-    else if (window.__ENV__ && window.__ENV__.VITE_BACKEND_URL) {
-      backendUrl = window.__ENV__.VITE_BACKEND_URL.trim().replace(/\/+$/, "");
+
+    // 2. Explicit window or env overrides (for standalone frontend deployments)
+    if (window.VITE_API_URL && typeof window.VITE_API_URL === "string" && window.VITE_API_URL.trim()) {
+      return window.VITE_API_URL.trim().replace(/\/+$/, "");
     }
-    // 3. Check meta tag in HTML <meta name="backend-url" content="...">
-    else if (document.querySelector('meta[name="backend-url"]')) {
-      const metaTag = document.querySelector('meta[name="backend-url"]');
-      const content = metaTag.content ? metaTag.content.trim().replace(/\/+$/, "") : "";
-      if (content && content !== "__BACKEND_URL__") {
-        backendUrl = content;
+    if (window.__ENV__ && (window.__ENV__.VITE_API_URL || window.__ENV__.VITE_BACKEND_URL)) {
+      const envVal = (window.__ENV__.VITE_API_URL || window.__ENV__.VITE_BACKEND_URL).trim().replace(/\/+$/, "");
+      if (envVal) return envVal;
+    }
+
+    // 3. Custom meta tags (if non-empty and not default placeholder)
+    const metaTag = document.querySelector('meta[name="api-url"]') || document.querySelector('meta[name="backend-url"]');
+    if (metaTag && metaTag.content) {
+      const val = metaTag.content.trim().replace(/\/+$/, "");
+      if (val && val !== "__API_URL__" && val !== "__BACKEND_URL__" && val !== DEFAULT_RENDER_BACKEND_URL) {
+        return val;
       }
-    } else {
-      backendUrl = RENDER_BACKEND_URL;
     }
+
+    // 4. If deployed on Vercel and no VITE_API_URL set, fallback to Render backend
+    if (hostname.endsWith(".vercel.app")) {
+      return DEFAULT_RENDER_BACKEND_URL;
+    }
+
+    // 5. Default: relative path ("")
+    return "";
   }
 
-  // Ensure ALL API requests use the Render backend URL
-  window.BACKEND_URL = backendUrl || RENDER_BACKEND_URL;
+  const backendUrl = determineBackendUrl();
+
+  window.API_URL = backendUrl;
+  window.BACKEND_URL = backendUrl;
 
   /**
-   * Resolves an API endpoint with the Render backend URL prefix.
+   * Resolves an API endpoint with the backend URL prefix.
    * @param {string} endpoint - The relative endpoint path (e.g. "login", "view-transactions")
-   * @returns {string} The full URL
+   * @returns {string} The full or relative URL
    */
   window.getApiUrl = function (endpoint) {
-    const base = (window.BACKEND_URL || RENDER_BACKEND_URL).trim().replace(/\/+$/, "");
+    const base = (window.API_URL || window.BACKEND_URL || "").trim().replace(/\/+$/, "");
     if (!endpoint) return base;
     if (endpoint.startsWith("http://") || endpoint.startsWith("https://")) {
       return endpoint;
     }
     const cleanEndpoint = endpoint.startsWith("/") ? endpoint : "/" + endpoint;
-    return base + cleanEndpoint;
+    return base ? (base + cleanEndpoint) : cleanEndpoint;
   };
 
   /**
