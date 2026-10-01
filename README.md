@@ -237,6 +237,5 @@ psql -d "postgresql://postgres:password@your-host:5432/postgres" -f backend/sche
        +-------------------------------+
 ```
 
-## License
 
-MIT License. Free for personal and educational use.
+
