@@ -18,7 +18,6 @@ A modern, full-stack personal finance and expense management web application des
 - **Backend**: Node.js / Bun, Express, TypeScript, tsx, esbuild
 - **Database**: PostgreSQL (`pg`), embedded PGlite engine for local zero-config fallback
 - **Authentication & Security**: PBKDF2 / Bcrypt password hashing, express-session, signed auth tokens, CORS
-
 ## Project Structure
 
 ```text
